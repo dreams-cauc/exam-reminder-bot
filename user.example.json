@@ -1,0 +1,12 @@
+{
+    "teacher-name-1": {
+        "dingtalkid": "id-number",
+        "mobile": "phone-number",
+        "role": "teacher-or-admin"
+    },
+    "teacher-name-2": {
+        "dingtalkid": "id-number",
+        "mobile": "phone-number",
+        "role": "teacher-or-admin"
+    }
+}
