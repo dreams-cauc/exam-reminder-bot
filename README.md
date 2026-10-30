@@ -279,3 +279,10 @@ monitor server
 | 推送        | 钉钉自定义机器人 Webhook + HMAC-SHA256 加签（`requests`） |
 | 时区        | `zoneinfo`，固定 `Asia/Shanghai`                 |
 | 配置        | `python-dotenv`                               |
+
+## 附件
+| 序号 | 姓名 | 钉钉账号 | 手机号 | 角色 |
+| ----- | ----- | ----- | ----- | ----- |
+| 1 | 张三 | dingtal_id1 | 19000000001 | admin |
+| 2 | 李四 | dingtal_id2 | 19000000002 | teacher |
+| 3 | 王五 | dingtal_id3 | 19000000003 | teacher |
