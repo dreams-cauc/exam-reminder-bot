@@ -20,7 +20,8 @@ ExamMonitoringSystem/
 ├── src/                    # 核心包
 │   ├── cli.py              # argparse 子命令：hello / iptjson / iptxlsx / server
 │   ├── config.py           # 路径、时区、.env 凭证、提醒时刻参数
-│   ├── db.py               # SQLite 表结构、访问函数、提醒状态机
+│   ├── db/                 # SQLite 访问层（连接 / 实体 CRUD / 提醒状态机）
+│   │   └── sql/schema.sql  # 建表语句（表、约束、索引）
 │   ├── parsing.py          # 考试时间/课程/姓名/手机号解析归一化
 │   ├── importers.py        # 教务 Excel 与 user.json 导入
 │   ├── scheduler.py        # 提醒时刻计算、按时间段合并成消息、发送队列
@@ -31,6 +32,7 @@ ExamMonitoringSystem/
 │   └── service.py          # 常驻轮询主循环
 ├── scripts/                # 与 CLI 子命令一一对应的独立脚本（开发调试用）
 ├── test/                   # 自检脚本（verify.py 为主）
+├── docs/                   # 设计文档
 ├── data/monitor.db         # 运行时生成，SQLite 单文件数据库
 └── scripts/run.py etc.     # 见第 7 节
 ```
@@ -51,7 +53,8 @@ user.json（教师名册）          教务监考表 .xlsx
         ▼                         ▼
  ┌──────────────────────────────────────┐
  │  SQLite  data/monitor.db             │
- │  teachers / exams / assignments      │
+ │  teachers / courses / rooms          │
+ │  exam_slots / exams / invigilators   │
  │  reminders（提醒队列 + 状态机）       │
  └───────────────┬──────────────────────┘
                  │ scheduler.queue_reminders()
@@ -69,20 +72,27 @@ user.json（教师名册）          教务监考表 .xlsx
         （加签 POST 到群机器人）
 ```
 
-**核心设计**：**SQLite 本身就是队列**。不使用 APScheduler 之类的内存调度器，因此进程重启、机器休眠都不会丢失提醒——到点未发的记录仍在 `pending`，下一轮轮询会被捡起。`reminders` 表上的 `UNIQUE(reminder_type, group_key)` 约束从数据库层面杜绝重复发送。
+**核心设计**：**SQLite 本身就是队列**。不使用 APScheduler 之类的内存调度器，因此进程重启、机器休眠都不会丢失提醒——到点未发的记录仍在 `pending`，下一轮轮询会被捡起。`reminders` 表上的 `UNIQUE(reminder_type, slot_id)` 约束从数据库层面杜绝重复发送。
 
 ---
 
 ## 3. 数据模型
 
-`data/monitor.db`，四张表：
+`data/monitor.db`，共 10 张表（详见 `docs/database.md` 与 `docs/data-dictionary.md`）：
 
-| 表             | 说明                                                                              | 关键约束                                                            |
-| ------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `teachers`    | 教师名册：`name`（主键，与 Excel 姓名列对齐）、`dingtalkid`、`mobile`、`role`（`teacher` / `admin`） | `name` 为主键，重复导入走 upsert                                         |
-| `exams`       | 一行 = **一个考场**（同课程、同日期、同起始时间、同教室）                                                | `UNIQUE(course_code, course_name, exam_date, start_time, room)` |
-| `assignments` | 考场-教师关系，`seat_label` 为 `副监考1` / `副监考2`；`resolved=1` 表示姓名在名册中命中                  | `UNIQUE(exam_id, seat_label)`                                   |
-| `reminders`   | 提醒队列，一行 = 一条待发消息，一个「时间段」的多个考场已合并                                                | `UNIQUE(reminder_type, group_key)`                              |
+| 表 | 说明 | 关键约束 |
+| --- | --- | --- |
+| `teachers` | 教师名册：UUID 主键、姓名、钉钉账号、手机号、角色 | 姓名允许重名，按钉钉账号/手机号判重 |
+| `courses` | 课程字典：课程号 + 课程名 | `UNIQUE(code, name)` |
+| `rooms` | 考场字典：规范化名称 + 校区/楼号/教室 | `UNIQUE(name)` |
+| `exam_slots` | 考试时间段：日期 + 起止时间 | `UNIQUE(exam_date, start_time, end_time)` |
+| `exams` | 一场考试 = 课程 + 考场 + 时间段 | `UNIQUE(room_id, slot_id)` |
+| `exam_invigilators` | 监考安排：座位标签 + 教师（名册外教师 `teacher_id` 为空） | `UNIQUE(exam_id, seat_label)` |
+| `reminders` | 提醒队列：一个时间段 + 提醒类型 = 一条待发消息 | `UNIQUE(reminder_type, slot_id)` |
+| `reminder_recipients` | 提醒收件人快照 | `UNIQUE(reminder_id, teacher_name)` |
+| `import_batches` / `import_errors` | 导入批次统计 / 拒收明细 | — |
+
+所有主键均为 36 位 UUID 字符串（由 Python 应用层生成），满足 1NF～BCNF；建表语句独立维护在 `src/db/sql/schema.sql`，文件末尾另含 7 个视图（`v_*`，供查看数据，不含 UUID/时间戳等系统字段）与 7 个触发器（`trg_*`，自动维护 `updated_at` / `sent_at`）。
 
 **提醒状态机**：
 
@@ -188,7 +198,8 @@ pip install -r requirements.txt
 ```
 
 - `mobile` 是 `@` 人的唯一依据，缺失则只能收群消息、无法被 `@`
-- `role` 为 `admin` 的教师会收到「提醒异常」通知
+- `role` 可选 `teacher` / `admin` / `developer`；`admin` 与 `developer` 会收到「提醒异常」通知
+- 同一教师按 `dingtalkid` / `mobile` 判重（姓名允许重名），命中即复用主键、不重复入库
 - `dingtalkid` / `mobile` 至少填一个
 
 ---
@@ -281,8 +292,10 @@ monitor server
 | 配置        | `python-dotenv`                               |
 
 ## 附件
-| 序号 | 姓名 | 钉钉账号 | 手机号 | 角色 |
-| ----- | ----- | ----- | ----- | ----- |
-| 1 | 张三 | dingtal_id1 | 19000000001 | admin |
-| 2 | 李四 | dingtal_id2 | 19000000002 | teacher |
-| 3 | 王五 | dingtal_id3 | 19000000003 | teacher |
+
+### 监考表实例Excel格式
+
+| 课程代码/课程名称 | 考试时间 | 校区 | 楼号 | 考试教室 | 副监考1 | 副监考2 | 选课人数 | 要求人数 | 主监考 | 学院 | 监考学院 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| 02401503/概率论与数理统计(I) | 第8周,周1,(2026-10-26),13:30-15:30 | 东丽校区 | 南教3 | 南教3-104 | 教师1 | 教师2 | 36 | 55 | 120 | 理学院 | 空中交通管理学院 |
+| 02401503/概率论与数理统计(I) | 第8周,周1,(2026-10-26),13:30-15:30 | 东丽校区 | 南教3 | 南教3-112 | 教室3 | 教室4 | 36 | 55 | 120 | 理学院 | 空中交通管理学院 |
