@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """提醒时刻计算、按考场整理正文、发送队列。
 
-queue_reminders()  把 exams/assignments 展开成 reminders 行
+queue_reminders()  把 exam_slots / exams / exam_invigilators 展开成 reminders 行
 process_due()      取到点且未过期的提醒，逐条发送并落状态
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timedelta
 
@@ -48,7 +47,7 @@ def _room_block(
     """一个考场填一段正文，返回 (段落, 可@手机号, @失败姓名)；无可提醒教师返回 None。
 
     template: daybefore_invigilator_msg / t2h_invigilator_msg，按提醒阶段选。
-    teachers: [{name, mobile, dingtalkid, resolved}, ...]，同名只保留首次出现。
+    teachers: [{name, mobile, teacher_id, resolved}, ...]，同名只保留首次出现。
     resolved=1 表示姓名在 teachers 名册中，只有他们会被提醒：
     有手机号填 @手机号（钉钉渲染成可点的 @），没有手机号填姓名且算 @ 失败，
     进异常清单推给管理员。名册外教师不提醒、不进异常清单，只出现在段末的
@@ -98,7 +97,7 @@ def _build_message(
     """按考场整理出一条完整消息，返回 (正文, 可@手机号, @失败姓名)。
 
     template: 提醒阶段模板（daybefore / t2h）。
-    rooms: [{"campus", "building", "room", "course_name", "teachers": [...]}, ...]
+    rooms: [{"course_code", "course_name", "room_label", "teachers": [...]}, ...]
     一个考场一段正文，全部段落合并成一条消息，结尾补 warm_tip；
     同一位教师排进多个考场时每段各自 @，atMobiles 去重。
     没有库内教师的考场整段跳过；所有考场都被跳过时正文为 ''。
@@ -113,9 +112,7 @@ def _build_message(
             template=template,
             course=room["course_name"],
             time=time_text,
-            location=messages.room_label(
-                room["campus"], room["building"], room["room"]
-            ),
+            location=room["room_label"],
         )
         if built is None:
             continue
@@ -132,14 +129,30 @@ def _build_message(
     return messages.assemble_invigilator_message(blocks), at_mobiles, failed
 
 
+def _collect_recipients(rooms: list[dict]) -> list[dict]:
+    """从提醒覆盖的考场收集去重后的收件人快照（teacher_id/姓名/手机号）。"""
+    recipients: list[dict] = []
+    seen: set[str] = set()
+    for room in rooms:
+        for t in room["teachers"]:
+            name = t["name"]
+            if name in seen:
+                continue
+            seen.add(name)
+            recipients.append({
+                "teacher_id": t.get("teacher_id"),
+                "teacher_name": name,
+                "mobile": t.get("mobile") or "",
+            })
+    return recipients
+
+
 def _exception_body(missing_names: list[str]) -> tuple[str, list[str]]:
     """库内教师 @ 失败时给管理员发提醒，返回 (正文, 管理员手机号)。"""
     with db.session() as conn:
-        admins = conn.execute(
-            "SELECT name, mobile FROM teachers WHERE role = 'admin' ORDER BY name"
-        ).fetchall()
+        admins = db.list_admins(conn)
     if not admins:
-        logger.warning("没有管理员（role='admin'），异常提醒无法发出：%s", missing_names)
+        logger.warning("没有异常通知接收人（role in admin/developer），异常提醒无法发出：%s", missing_names)
         return "", []
 
     mobiles = [a["mobile"] for a in admins if a["mobile"]]
@@ -165,15 +178,13 @@ def queue_reminders() -> dict[str, int]:
     返回 created / updated / kept 计数。
     """
     stats = {"created": 0, "updated": 0, "kept": 0}
-    live_keys: set[str] = set()
+    live_slot_ids: set[str] = set()
 
     with db.session() as conn:
         today = db.now_str()[:10]
-        for g in db.slot_groups(conn):
+        for g in db.list_slots(conn):
             rooms = [
-                r for r in db.rooms_for_slot(
-                    conn, g["exam_date"], g["start_time"], g["end_time"]
-                )
+                r for r in db.slot_exams(conn, g["id"])
                 if r["teachers"]
             ]
             if not rooms:
@@ -185,7 +196,7 @@ def queue_reminders() -> dict[str, int]:
                 _dt(g["exam_date"], g["start_time"]).weekday()
             ) + 1
             # 两小时和两小时以内统一用 t2h 话术；@ 名单、异常清单与模板无关
-            message, at_mobiles, missing = _build_message(
+            message, _, missing = _build_message(
                 template=t2h_invigilator_msg,
                 rooms=rooms,
                 exam_date=g["exam_date"],
@@ -202,30 +213,12 @@ def queue_reminders() -> dict[str, int]:
                 exception_message, _ = _exception_body(missing)
 
             schedule = compute_schedule(g["exam_date"], g["start_time"])
-            group_key = f"{g['exam_date']}|{g['start_time']}|{g['end_time']}"
             # 名单与消息一致：只记真正发出去的考场（含名单上的名册外教师）
             reminded = [
                 r for r in rooms
                 if any(x.get("resolved") for x in r["teachers"])
             ]
-            names = list(dict.fromkeys(
-                t["name"] for r in reminded for t in r["teachers"]
-            ))
-            base = {
-                "course_code": "、".join(dict.fromkeys(
-                    r["course_code"] for r in rooms if r["course_code"]
-                )),
-                "course_name": "、".join(dict.fromkeys(
-                    r["course_name"] for r in rooms
-                )),
-                "exam_date": g["exam_date"],
-                "start_time": g["start_time"],
-                "end_time": g["end_time"],
-                "names_json": json.dumps(names, ensure_ascii=False),
-                "at_ids_json": json.dumps(at_mobiles, ensure_ascii=False),
-                "missing_json": json.dumps(missing, ensure_ascii=False),
-                "exception_message": exception_message,
-            }
+            recipients = _collect_recipients(reminded)
 
             rows = [(config.REMINDER_T2H, t2h_invigilator_msg, message)]
             if g["exam_date"] > today:
@@ -241,15 +234,17 @@ def queue_reminders() -> dict[str, int]:
                 rows.append((config.REMINDER_DAY_BEFORE, daybefore_invigilator_msg, day_msg))
 
             for reminder_type, _, row_message in rows:
-                _, action = db.upsert_reminder(conn, {
-                    "reminder_type": reminder_type,
-                    "group_key": group_key,
-                    "scheduled_at": schedule[reminder_type],
-                    "message": row_message,
-                    **base,
-                })
+                _, action = db.upsert_reminder(
+                    conn,
+                    reminder_type=reminder_type,
+                    slot_id=g["id"],
+                    scheduled_at=schedule[reminder_type],
+                    message=row_message,
+                    exception_message=exception_message,
+                    recipients=recipients,
+                )
                 stats[action] += 1
-                live_keys.add(group_key)
+                live_slot_ids.add(g["id"])
 
         # 考试进入当天后，作废还没发出的前一天提醒（t2h 行负责临近提醒）
         stale = db.cancel_stale_day_before(conn, today)
@@ -257,7 +252,7 @@ def queue_reminders() -> dict[str, int]:
             logger.info("取消 %d 条过时的前一天提醒（考试已进入当天）", stale)
 
         # 清掉已无对应考试的待发提醒，避免发出过期内容
-        cancelled = db.cancel_orphan_reminders(conn, live_keys)
+        cancelled = db.cancel_orphan_reminders(conn, live_slot_ids)
         if cancelled:
             logger.info("取消 %d 条孤儿提醒（对应考试已不存在）", cancelled)
 
@@ -296,10 +291,17 @@ def process_due(*, dry_run: bool = False) -> int:
         with db.session() as conn:
             if not db.claim_reminder(conn, row["id"]):
                 continue   # 已被其它进程占走
+
+        with db.session() as conn:
+            recipients = db.reminder_recipients(conn, row["id"])
+        at_mobiles = [
+            r["mobile"] for r in recipients if r["teacher_id"] and r["mobile"]
+        ]
+
         try:
             result = dingtalk.send_text(
                 row["message"],
-                at_mobiles=json.loads(row["at_ids_json"] or "[]"),
+                at_mobiles=at_mobiles,
             )
         except dingtalk.DingTalkError as exc:
             with db.session() as conn:
@@ -319,9 +321,7 @@ def process_due(*, dry_run: bool = False) -> int:
             if row["exception_message"]:
                 try:
                     admin_mobiles = [
-                        r["mobile"] for r in conn.execute(
-                            "SELECT mobile FROM teachers WHERE role = 'admin' AND mobile != ''"
-                        )
+                        r["mobile"] for r in db.list_admins(conn) if r["mobile"]
                     ]
                     exc_result = dingtalk.send_text(
                         row["exception_message"], at_mobiles=admin_mobiles,

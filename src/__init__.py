@@ -3,7 +3,7 @@
 
 模块划分：
     config     路径 / 时区 / 钉钉凭证 / 提醒时刻参数
-    db         SQLite 表结构与访问
+    db         SQLite 数据库访问层（包）
     parsing    考试时间字符串、姓名、课程字段解析
     importers  教务 Excel 与 user.json 导入
     scheduler  提醒时刻计算、按场次合并、队列同步

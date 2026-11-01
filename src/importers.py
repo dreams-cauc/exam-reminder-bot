@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sqlite3
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,10 +19,10 @@ from pathlib import Path
 import pandas as pd
 
 if __package__:
-    from . import config, db, parsing
+    from . import config, db, messages, parsing
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from src import config, db, parsing
+    from src import config, db, messages, parsing
 
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ def load_user_json(path: Path | None = None) -> int:
     count = 0
     no_mobile: list[str] = []
     with db.session() as conn:
+        batch_id = db.create_batch(conn, source_type="json", source_file=path.name)
         for name, info in raw.items():
             name = parsing.normalize_name(name)
             if not name:
@@ -102,15 +104,23 @@ def load_user_json(path: Path | None = None) -> int:
                 raise ValueError(f"user.json 中 {name!r} 的值应为对象")
             dingtalkid = str(info.get("dingtalkid", "")).strip()
             mobile = parsing.normalize_mobile(info.get("mobile", ""))
-            role = str(info.get("role", "teacher")).strip() or "teacher"
+            role = parsing.normalize_role(info.get("role") or "teacher")
             if not dingtalkid and not mobile:
                 raise ValueError(
                     f"user.json 中 {name!r} 至少要给 dingtalkid 或 mobile 之一"
                 )
             if not mobile:
                 no_mobile.append(name)
-            db.upsert_teacher(conn, name, dingtalkid, role, mobile=mobile)
+            try:
+                db.upsert_teacher(
+                    conn, name=name, dingtalk_id=dingtalkid, mobile=mobile, role=role,
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"user.json 中 {name!r} 的钉钉账号/手机号与名册中已有教师冲突：{exc}"
+                ) from exc
             count += 1
+        db.finalize_batch(conn, batch_id, rows_seen=count, rows_imported=count, rows_rejected=0)
 
     logger.info("user.json 导入完成：%d 名教师 -> %s", count, config.DB_PATH)
     if no_mobile:
@@ -141,6 +151,19 @@ def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
     raise ValueError("未找到表头行：需要同时包含「课程」与「考试时间」列")
 
 
+def _resolve(name: str, name_index: dict[str, list[str]]) -> tuple[str | None, str]:
+    """按姓名解析教师 id。返回 (teacher_id, 告警文案)。
+
+    唯一命中返回 id；未命中返回 None；多条同名返回 None 并给出告警。
+    """
+    ids = name_index.get(name, [])
+    if len(ids) == 1:
+        return ids[0], ""
+    if len(ids) > 1:
+        return None, f"姓名 {name} 在名册中有 {len(ids)} 条记录，无法唯一匹配，按名册外处理"
+    return None, ""
+
+
 def import_excel(path: Path | str) -> ImportReport:
     """导入监考安排 Excel。返回导入报告，拒收行不丢弃而是记入报告。"""
     path = Path(path)
@@ -164,12 +187,9 @@ def import_excel(path: Path | str) -> ImportReport:
             return ""
         return parsing.normalize_text(row.iloc[col_idx])
 
-    # 先建名册索引，一次查库
     with db.session() as conn:
-        known = {
-            row["name"]
-            for row in conn.execute("SELECT name FROM teachers")
-        }
+        batch_id = db.create_batch(conn, source_type="excel", source_file=path.name)
+        name_index = db.teacher_name_index(conn)
 
         for offset, row in body.iterrows():
             excel_row = int(offset) + header_idx + 2   # 1-based，含表头行
@@ -186,46 +206,62 @@ def import_excel(path: Path | str) -> ImportReport:
                     raise parsing.ParseError("考试教室为空")
             except parsing.ParseError as exc:
                 report.rejected.append((excel_row, str(exc)))
+                db.add_error(conn, batch_id, excel_row, str(exc))
                 continue
 
-            exam_fields = {
-                "course_code": course_code,
-                "course_name": course_name,
-                "raw_course": cell(row, "raw_course"),
-                "raw_time": cell(row, "raw_time"),
-                "week_num": et.week_num,
-                "weekday_num": et.weekday_num,
-                "exam_date": et.exam_date,
-                "start_time": et.start_time,
-                "end_time": et.end_time,
-                "campus": cell(row, "campus"),
-                "building": cell(row, "building"),
-                "room": room,
-                "enrolled": parsing.parse_int(cell(row, "enrolled")),
-                "required": parsing.parse_int(cell(row, "required")),
-                "chief_college": cell(row, "chief_college"),
-                "invigilator_college": cell(row, "invigilator_college"),
-                "source_file": path.name,
-            }
-            exam_id = db.insert_exam(conn, exam_fields)
+            campus = cell(row, "campus")
+            building = cell(row, "building")
+            course_id = db.get_or_create_course(conn, code=course_code, name=course_name)
+            slot_id = db.get_or_create_slot(
+                conn,
+                exam_date=et.exam_date,
+                start_time=et.start_time,
+                end_time=et.end_time,
+            )
+            room_label = messages.room_label(campus, building, room)
+            room_id = db.get_or_create_room(
+                conn, name=room_label, campus=campus, building=building, room_no=room,
+            )
+            exam_id = db.upsert_exam(
+                conn,
+                course_id=course_id,
+                room_id=room_id,
+                slot_id=slot_id,
+                enrolled=parsing.parse_int(cell(row, "enrolled")),
+                required=parsing.parse_int(cell(row, "required")),
+                chief_college=cell(row, "chief_college"),
+                invigilator_college=cell(row, "invigilator_college"),
+                source_file=path.name,
+            )
 
-            seats: list[tuple[str, str, int]] = []
+            seats: list[tuple[str | None, str, str]] = []
             for field_name, seat_label in INVIGILATOR_COLUMNS:
                 name = parsing.normalize_name(cell(row, field_name))
                 if not name:
                     continue   # 副监考2 允许为空
-                resolved = 1 if name in known else 0
-                seats.append((seat_label, name, resolved))
-                if not resolved:
-                    report.missing_teachers.setdefault(name, []).append(
-                        f"行{excel_row}"
-                    )
+                teacher_id, warn = _resolve(name, name_index)
+                seats.append((teacher_id, name, seat_label))
+                if warn:
+                    report.warnings.append(warn)
+                if teacher_id is None:
+                    report.missing_teachers.setdefault(name, []).append(f"行{excel_row}")
+
             if not seats:
-                report.rejected.append((excel_row, "没有任何监考教师（副监考1/副监考2 均为空）"))
+                reason = "没有任何监考教师（副监考1/副监考2 均为空）"
+                report.rejected.append((excel_row, reason))
+                db.add_error(conn, batch_id, excel_row, reason)
                 continue
 
-            db.set_assignments(conn, exam_id, seats)
+            db.set_invigilators(conn, exam_id, seats)
             report.rows_imported += 1
+
+        db.finalize_batch(
+            conn,
+            batch_id,
+            rows_seen=report.rows_seen,
+            rows_imported=report.rows_imported,
+            rows_rejected=len(report.rejected),
+        )
 
     logger.info("Excel 导入完成:\n%s", report.summary())
     return report
