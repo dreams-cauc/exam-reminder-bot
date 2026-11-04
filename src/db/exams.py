@@ -15,11 +15,6 @@ def upsert_exam(
     course_id: str,
     room_id: str,
     slot_id: str,
-    enrolled: int | None,
-    required: int | None,
-    chief_college: str,
-    invigilator_college: str,
-    source_file: str,
 ) -> str:
     """写入/更新一个考场一场考试，返回考试 id。同一考场同一时段视为同一场。"""
     row = conn.execute(
@@ -30,19 +25,16 @@ def upsert_exam(
     if row:
         eid = row["id"]
         conn.execute(
-            "UPDATE exams SET course_id = ?, enrolled = ?, required = ?, chief_college = ?,"
-            " invigilator_college = ?, source_file = ?, updated_at = ? WHERE id = ?",
-            (course_id, enrolled, required, chief_college, invigilator_college, source_file, ts, eid),
+            "UPDATE exams SET course_id = ?, updated_at = ? WHERE id = ?",
+            (course_id, ts, eid),
         )
         return eid
 
     eid = new_id()
     conn.execute(
-        "INSERT INTO exams (id, course_id, room_id, slot_id, enrolled, required, chief_college,"
-        " invigilator_college, source_file, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (eid, course_id, room_id, slot_id, enrolled, required, chief_college,
-         invigilator_college, source_file, ts, ts),
+        "INSERT INTO exams (id, course_id, room_id, slot_id, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (eid, course_id, room_id, slot_id, ts, ts),
     )
     return eid
 

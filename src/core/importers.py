@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -31,27 +32,18 @@ else:
 logger = logging.getLogger(__name__)
 
 # 表头名 -> 内部字段名。未知表头忽略，缺必需表头才报错。
+# 只入库课程/时间/考场/监考教师，其余表头一律忽略。
 COLUMN_ALIASES: dict[str, str] = {
     "课程": "raw_course",
     "考试时间": "raw_time",
-    "考场校区": "campus",
     "楼号": "building",
     "考试教室": "room",
-    "副监考1": "invigilator1",
-    "副监考2": "invigilator2",
-    "选课人数": "enrolled",
-    "要求人数": "required",
-    "主监考学院": "chief_college",
-    "监考学院": "invigilator_college",
 }
 
 REQUIRED_COLUMNS = ("raw_course", "raw_time", "room")
 
-# 监考教师列：顺序即座位标签
-INVIGILATOR_COLUMNS = (
-    ("invigilator1", "副监考1"),
-    ("invigilator2", "副监考2"),
-)
+# 副监考列命名：副监考1、副监考2、副监考3……按序号识别
+_SEAT_RE = re.compile(r"^副监考(\d+)$")
 
 
 @dataclass
@@ -134,8 +126,32 @@ def load_user_json(path: Path | None = None) -> int:
     return count
 
 
-def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
-    """找到表头行，建立「内部字段名 -> 列下标」映射。
+def _collect_seat_columns(headers: list[str]) -> list[tuple[str, int]]:
+    """从表头识别监考座位列，返回 [(座位标签, 列下标), ...]。
+
+    主监考在前，副监考1、副监考2、副监考3……按序号升序；未出现则不返回。
+    """
+    chief: int | None = None
+    deputies: list[tuple[int, int]] = []
+    for col_idx, header in enumerate(headers):
+        if header == "主监考":
+            chief = col_idx
+            continue
+        m = _SEAT_RE.match(header)
+        if m:
+            deputies.append((int(m.group(1)), col_idx))
+    deputies.sort(key=lambda item: item[0])
+
+    seats: list[tuple[str, int]] = []
+    if chief is not None:
+        seats.append(("主监考", chief))
+    for n, col_idx in deputies:
+        seats.append((f"副监考{n}", col_idx))
+    return seats
+
+
+def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int], list[tuple[str, int]]]:
+    """找到表头行，返回 (表头行号, 固定字段列映射, 监考座位列)。
 
     有些导出表首行是标题行，所以扫前 10 行找同时含「课程」和「考试时间」的行。
     用列下标而非列名映射，规避 pandas 默认把首行当表头的歧义。
@@ -150,7 +166,7 @@ def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
                 field_name = COLUMN_ALIASES.get(header)
                 if field_name:
                     mapping[field_name] = col_idx
-            return idx, mapping
+            return idx, mapping, _collect_seat_columns(values)
     raise ValueError("未找到表头行：需要同时包含「课程」与「考试时间」列")
 
 
@@ -176,7 +192,7 @@ def import_excel(path: Path | str) -> ImportReport:
     df = pd.read_excel(path, sheet_name=0, header=None, dtype=str)
     df = df.fillna("")
 
-    header_idx, colmap = _locate_header(df)
+    header_idx, colmap, seat_cols = _locate_header(df)
     missing = [c for c in REQUIRED_COLUMNS if c not in colmap]
     if missing:
         raise ValueError(f"Excel 缺少必需列: {missing}（当前映射: {sorted(colmap)}）")
@@ -212,7 +228,6 @@ def import_excel(path: Path | str) -> ImportReport:
                 db.add_error(conn, batch_id, excel_row, str(exc))
                 continue
 
-            campus = cell(row, "campus")
             building = cell(row, "building")
             course_id = db.get_or_create_course(conn, code=course_code, name=course_name)
             slot_id = db.get_or_create_slot(
@@ -221,27 +236,22 @@ def import_excel(path: Path | str) -> ImportReport:
                 start_time=et.start_time,
                 end_time=et.end_time,
             )
-            room_label = messages.room_label(campus, building, room)
+            room_label = messages.room_label(building, room)
             room_id = db.get_or_create_room(
-                conn, name=room_label, campus=campus, building=building, room_no=room,
+                conn, name=room_label, building=building, room_no=room,
             )
             exam_id = db.upsert_exam(
                 conn,
                 course_id=course_id,
                 room_id=room_id,
                 slot_id=slot_id,
-                enrolled=parsing.parse_int(cell(row, "enrolled")),
-                required=parsing.parse_int(cell(row, "required")),
-                chief_college=cell(row, "chief_college"),
-                invigilator_college=cell(row, "invigilator_college"),
-                source_file=path.name,
             )
 
             seats: list[tuple[str | None, str, str]] = []
-            for field_name, seat_label in INVIGILATOR_COLUMNS:
-                name = parsing.normalize_name(cell(row, field_name))
+            for seat_label, col_idx in seat_cols:
+                name = parsing.normalize_name(row.iloc[col_idx])
                 if not name:
-                    continue   # 副监考2 允许为空
+                    continue   # 副监考N 允许为空
                 teacher_id, warn = _resolve(name, name_index)
                 seats.append((teacher_id, name, seat_label))
                 if warn:
@@ -250,7 +260,7 @@ def import_excel(path: Path | str) -> ImportReport:
                     report.missing_teachers.setdefault(name, []).append(f"行{excel_row}")
 
             if not seats:
-                reason = "没有任何监考教师（副监考1/副监考2 均为空）"
+                reason = "没有任何监考教师（主监考/副监考 均为空）"
                 report.rejected.append((excel_row, reason))
                 db.add_error(conn, batch_id, excel_row, reason)
                 continue

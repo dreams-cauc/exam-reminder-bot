@@ -26,7 +26,6 @@ def get_or_create_room(
     conn: sqlite3.Connection,
     *,
     name: str,
-    campus: str = "",
     building: str = "",
     room_no: str = "",
 ) -> str:
@@ -37,9 +36,9 @@ def get_or_create_room(
     rid = new_id()
     ts = now_str()
     conn.execute(
-        "INSERT INTO rooms (id, name, campus, building, room_no, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (rid, name, campus, building, room_no, ts, ts),
+        "INSERT INTO rooms (id, name, building, room_no, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (rid, name, building, room_no, ts, ts),
     )
     return rid
 

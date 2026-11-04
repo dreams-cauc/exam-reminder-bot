@@ -35,16 +35,15 @@ def format_exam_time(exam_date: str, start_time: str, end_time: str, weekday_num
     return f"{exam_date}({wd}) {start_time}-{end_time}"
 
 
-def room_label(campus: str, building: str, room: str) -> str:
+def room_label(building: str, room: str) -> str:
     """考场显示串：`南教3-104`。
 
     教室列本身已含楼号（如 `南教3-104`）时原样返回，避免重复拼接。
     """
     if not room:
-        return f"{campus}{building}"
-    head = f"{campus}{building}"
-    if head and not room.startswith(head):
-        return f"{head}-{room}"
+        return building
+    if building and not room.startswith(building):
+        return f"{building}-{room}"
     return room
 
 

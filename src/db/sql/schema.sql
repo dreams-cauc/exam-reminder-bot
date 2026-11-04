@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS courses (
 CREATE TABLE IF NOT EXISTS rooms (
     id         TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 36),
     name       TEXT NOT NULL,               -- 规范化考场名称（如 '南教3-104'）
-    campus     TEXT NOT NULL DEFAULT '',    -- 考场校区（来源字段）
     building   TEXT NOT NULL DEFAULT '',    -- 楼号（来源字段）
     room_no    TEXT NOT NULL DEFAULT '',    -- 考试教室（来源字段）
     created_at TEXT NOT NULL,
@@ -79,11 +78,6 @@ CREATE TABLE IF NOT EXISTS exams (
     course_id           TEXT NOT NULL REFERENCES courses (id) ON DELETE RESTRICT,
     room_id             TEXT NOT NULL REFERENCES rooms (id) ON DELETE RESTRICT,
     slot_id             TEXT NOT NULL REFERENCES exam_slots (id) ON DELETE RESTRICT,
-    enrolled            INTEGER,
-    required            INTEGER,
-    chief_college       TEXT NOT NULL DEFAULT '',
-    invigilator_college TEXT NOT NULL DEFAULT '',
-    source_file         TEXT NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL,
     UNIQUE (room_id, slot_id)
@@ -197,9 +191,7 @@ SELECT
     r.name      AS room_name,
     s.exam_date,
     s.start_time,
-    s.end_time,
-    e.enrolled,
-    e.required
+    s.end_time
 FROM exams e
 JOIN courses c    ON e.course_id = c.id
 JOIN rooms r      ON e.room_id = r.id
