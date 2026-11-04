@@ -26,6 +26,9 @@ class ServiceThread(QThread):
         self._stop = threading.Event()
 
     def run(self) -> None:
+        # 复用线程重启前复位停止标志：上次 stop() 置位后若不清理，
+        # 下一次 start() 会因标志仍为 True 而立即退出，导致服务起不来。
+        self._stop.clear()
         logger.info("监考提醒服务已启动。")
         try:
             scheduler.queue_reminders()
