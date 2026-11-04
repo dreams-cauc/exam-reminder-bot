@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""机器人打招呼。"""
 
 from __future__ import annotations
 
 import logging
 
-from . import dingtalk, messages
+from ..utils import dingtalk
+from . import messages
 
 logger = logging.getLogger(__name__)
 

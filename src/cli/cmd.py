@@ -23,7 +23,8 @@ def setup_logger() -> None:
 
 
 def _cmd_hello(args: argparse.Namespace) -> int:
-    from . import config, dingtalk, greeting
+    from ..utils import config, dingtalk
+    from ..core import greeting
 
     if not config.WEBHOOK_URL or not config.SECRET:
         if not args.dry_run:
@@ -38,7 +39,8 @@ def _cmd_hello(args: argparse.Namespace) -> int:
 
 
 def _cmd_iptjson(args: argparse.Namespace) -> int:
-    from . import config, importers
+    from ..utils import config
+    from ..core import importers
 
     config.ensure_dirs()
     try:
@@ -53,7 +55,8 @@ def _cmd_iptjson(args: argparse.Namespace) -> int:
 
 
 def _cmd_iptxlsx(args: argparse.Namespace) -> int:
-    from . import config, importers, scheduler
+    from ..utils import config
+    from ..core import importers, scheduler
 
     config.ensure_dirs()
     try:
@@ -76,7 +79,8 @@ def _cmd_iptxlsx(args: argparse.Namespace) -> int:
 
 
 def _cmd_server(args: argparse.Namespace) -> int:
-    from . import config, scheduler, service
+    from ..utils import config
+    from ..core import scheduler, service
 
     config.ensure_dirs()
     if not config.WEBHOOK_URL or not config.SECRET:
@@ -146,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def cmd_main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logger()
     func: Callable[[argparse.Namespace], int] = args.func
@@ -154,4 +158,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cmd_main())

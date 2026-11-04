@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 按名称填充：
-一个考场填一段正文，同一时间段的多个考场段落合并成一条消息，
-结尾补 warm_tip。
+一个考场填一段正文，同一时间段的多个考场段落合并成一条消息
 """
 
 from __future__ import annotations
 
 import re
 
-from .prompt import error_feedback_msg, helloteacher, warm_tip
+from ..utils.prompt import error_feedback_msg, helloteacher, warm_tip
 
 WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 

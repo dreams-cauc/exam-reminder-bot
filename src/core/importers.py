@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """数据导入：教务 Excel、教师名册 JSON。
 
-Excel 按表头名取列，不依赖列序号（导出表可能增删列）。
 姓名解析到 teachers 表拿钉钉ID；解析不到的姓名不提醒、不推送管理员，
 只登记在监考名单里，供同场监考教师互知。
 """
@@ -19,10 +18,14 @@ from pathlib import Path
 import pandas as pd
 
 if __package__:
-    from . import config, db, messages, parsing
+    from ..utils import config, parsing
+    from .. import db
+    from . import messages
 else:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from src import config, db, messages, parsing
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.utils import config, parsing
+    from src import db
+    from src.core import messages
 
 
 logger = logging.getLogger(__name__)
@@ -305,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 60)
 
     if not args.no_queue:
-        from src import scheduler
+        from src.core import scheduler
         print(f"\n提醒队列重建：{scheduler.queue_reminders()}")
 
     return 1 if report.rejected else 0

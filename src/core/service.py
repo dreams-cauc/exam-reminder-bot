@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import time
 
-from . import config, scheduler
+from ..utils import config
+from . import scheduler
 
 logger = logging.getLogger(__name__)
 

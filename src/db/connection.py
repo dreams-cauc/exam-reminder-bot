@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from .. import config
+from ..utils import config
 
 # 结构版本号：结构变更时 +1，配合 PRAGMA user_version 做增量迁移
 SCHEMA_VERSION = 2

@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src import config, dingtalk, greeting  # noqa: E402
+from src.utils import config, dingtalk  # noqa: E402
+from src.core import greeting  # noqa: E402
 
 
 def setup_logger() -> None:

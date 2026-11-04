@@ -10,8 +10,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from . import config, db, dingtalk, messages
-from .prompt import daybefore_invigilator_msg, t2h_invigilator_msg
+from ..utils import config, dingtalk
+from .. import db
+from . import messages
+from ..utils.prompt import daybefore_invigilator_msg, t2h_invigilator_msg
 
 logger = logging.getLogger(__name__)
 
