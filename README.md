@@ -135,10 +135,12 @@ user.json（教师名册）          教务监考表 .xlsx
 
 ### 4.3 两阶段话术
 
-| 类型           | 触发时刻        | 模板                          | 话术                |
-| ------------ | ----------- | --------------------------- | ----------------- |
-| `day_before` | 考试前一天 18:00 | `daybefore_invigilator_msg` | 「您明天的监考信息如下」      |
-| `t2h`        | 开考前 2 小时    | `t2h_invigilator_msg`       | 「您的监考不足两小时，请按时前往」 |
+| 类型           | 触发时刻        | 模板键（setting.json）   | 话术                |
+| ------------ | ----------- | -------------------- | ----------------- |
+| `day_before` | 考试前一天 18:00 | `day_before_template` | 「您明天的监考信息如下」      |
+| `t2h`        | 开考前 2 小时    | `t2h_template`        | 「您的监考不足两小时，请按时前往」 |
+
+> 话术模板由用户在设置界面编辑，保存后写入 `setting.json`，运行期以 json 为准，代码不硬编码。
 
 **边界处理**：若导入时考试已进入当天（含已不足两小时），只建 `t2h` 行——到点即发，不会漏掉临近监考，也不会再发误导性的「明天」话术。已存在的 `day_before` 待发记录会被 `cancel_stale_day_before()` 置为 `cancelled`。
 
@@ -161,15 +163,18 @@ user.json（教师名册）          教务监考表 .xlsx
 
 ## 5. 消息模板
 
-全部文案集中在 **`src/utils/prompt.py`**，占位符用 `{name}` 形式，由 `messages.fill()` 按名替换（不用 `str.format`，教师姓名里的花括号不会破坏模板）。
+占位符统一用 `{name}` 形式，由 `messages.fill()` 按名替换（不用 `str.format`，教师姓名里的花括号不会破坏模板）。
 
-| 变量                          | 用途          | 占位符                                                       |
-| --------------------------- | ----------- | --------------------------------------------------------- |
-| `daybefore_invigilator_msg` | 前一天提醒       | `at_teacher` `course` `time` `location` `proctor_teacher` |
-| `t2h_invigilator_msg`       | 考前 2 小时提醒   | 同上                                                        |
-| `error_feedback_msg`        | 管理员异常通知     | `err_teacher` `admin_teacher`                             |
-| `helloteacher`              | 机器人打招呼      | `hi_all`                                                  |
-| `warm_tip`                  | 每条提醒结尾的温馨提示 | —                                                         |
+- 前一天 / 考前 2 小时的**话术模板**（`day_before_template`、`t2h_template`）由用户在设置界面编辑，保存后写入 `setting.json`，运行期从 json 读取，代码不再硬编码。
+- 异常通知、打招呼、温馨提示等固定文案仍在 **`src/utils/prompt.py`**。
+
+| 配置项 / 变量                          | 用途          | 占位符                                                       |
+| ---------------------------------- | ----------- | --------------------------------------------------------- |
+| `day_before_template`（setting.json） | 前一天提醒       | `at_teacher` `course` `time` `location` `proctor_teacher` |
+| `t2h_template`（setting.json）        | 考前 2 小时提醒   | 同上                                                        |
+| `error_feedback_msg`               | 管理员异常通知     | `err_teacher` `admin_teacher`                             |
+| `helloteacher`                     | 机器人打招呼      | `hi_all`                                                  |
+| `warm_tip`                         | 每条提醒结尾的温馨提示 | —                                                         |
 
 ---
 

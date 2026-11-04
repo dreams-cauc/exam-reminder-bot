@@ -1,28 +1,3 @@
-# 教师监考提醒
-# 前一天
-daybefore_invigilator_msg = """【📅 监考提醒】 {at_teacher} 
-
-老师您好，您明天的监考信息如下
-📚 科目：{course}
-🕘 时间：{time}
-📍 教室：{location}
-👥 老师：{proctor_teacher}
-======================
-
-"""
-
-# 两小时和两小时内
-t2h_invigilator_msg = """【⏰ 监考提醒】 {at_teacher}
-
-老师您好，您的监考已不足两小时
-📚 科目：{course}
-🕘 时间：{time}
-📍 教室：{location}
-👥 老师：{proctor_teacher}
-======================
-
-"""
-
 # 监考提醒反馈
 error_feedback_msg = """【⚠️ 提醒异常】
 

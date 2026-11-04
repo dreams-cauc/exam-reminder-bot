@@ -48,7 +48,7 @@ def _room_block(
 ) -> tuple[str, list[str], list[str]] | None:
     """一个考场填一段正文，返回 (段落, 可@手机号, @失败姓名)；无可提醒教师返回 None。
 
-    template: daybefore_invigilator_msg / t2h_invigilator_msg，按提醒阶段选。
+    template: setting.json 里的 day_before_template / t2h_template，按提醒阶段选。
     teachers: [{name, mobile, teacher_id, resolved}, ...]，同名只保留首次出现。
     resolved=1 表示姓名在 teachers 名册中，只有他们会被提醒：
     有手机号填 @手机号（钉钉渲染成可点的 @），没有手机号填姓名且算 @ 失败，

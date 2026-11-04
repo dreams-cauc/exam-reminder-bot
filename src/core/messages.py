@@ -58,7 +58,7 @@ def build_invigilator_message(
 ) -> str:
     """单个考场的监考提醒正文（含结尾分隔线与空行）。
 
-    template        提醒阶段模板：daybefore_invigilator_msg / t2h_invigilator_msg
+    template        提醒阶段模板（取自 setting.json：day_before_template / t2h_template）
     at_teacher      收件人槽位：可 @ 的填 @手机号，其余填姓名，空格分隔
     course          监考科目
     time            监考时间

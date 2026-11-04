@@ -18,9 +18,32 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 from . import config
-from .prompt import daybefore_invigilator_msg, t2h_invigilator_msg
 
 logger = logging.getLogger(__name__)
+
+# 提醒话术模板默认值。运行期以 setting.json 为准，这里只作首次运行的兜底，
+# 用户自定义并保存后系统直接读 json 里的模板发送。
+_DEFAULT_DAY_BEFORE_TEMPLATE = """【📅 监考提醒】 {at_teacher}
+
+老师您好，您明天的监考信息如下
+📚 科目：{course}
+🕘 时间：{time}
+📍 教室：{location}
+👥 老师：{proctor_teacher}
+======================
+
+"""
+
+_DEFAULT_T2H_TEMPLATE = """【⏰ 监考提醒】 {at_teacher}
+
+老师您好，您的监考已不足两小时
+📚 科目：{course}
+🕘 时间：{time}
+📍 教室：{location}
+👥 老师：{proctor_teacher}
+======================
+
+"""
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -42,9 +65,9 @@ DEFAULTS: dict = {
     "reminder": {
         "day_before_enabled": True,
         "day_before_time": f"{config.DAY_BEFORE_HOUR:02d}:{config.DAY_BEFORE_MINUTE:02d}",
-        "day_before_template": daybefore_invigilator_msg,
+        "day_before_template": _DEFAULT_DAY_BEFORE_TEMPLATE,
         "t2h_enabled": True,
-        "t2h_template": t2h_invigilator_msg,
+        "t2h_template": _DEFAULT_T2H_TEMPLATE,
     },
 }
 
@@ -164,7 +187,7 @@ class _Settings:
     @property
     def day_before_template(self) -> str:
         self.ensure_initialized()
-        return str(self._data["reminder"].get("day_before_template", daybefore_invigilator_msg))
+        return str(self._data["reminder"].get("day_before_template", _DEFAULT_DAY_BEFORE_TEMPLATE))
 
     @property
     def t2h_enabled(self) -> bool:
@@ -174,7 +197,7 @@ class _Settings:
     @property
     def t2h_template(self) -> str:
         self.ensure_initialized()
-        return str(self._data["reminder"].get("t2h_template", t2h_invigilator_msg))
+        return str(self._data["reminder"].get("t2h_template", _DEFAULT_T2H_TEMPLATE))
 
 
 settings = _Settings()
