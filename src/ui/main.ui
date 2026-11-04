@@ -125,6 +125,13 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="btnSaveEdit">
+             <property name="text">
+              <string>保存编辑</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QComboBox" name="cboxSelectTable">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">

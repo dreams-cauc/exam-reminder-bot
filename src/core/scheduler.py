@@ -11,9 +11,9 @@ import logging
 from datetime import datetime, timedelta
 
 from ..utils import config, dingtalk
+from ..utils.settings import settings
 from .. import db
 from . import messages
-from ..utils.prompt import daybefore_invigilator_msg, t2h_invigilator_msg
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ def compute_schedule(exam_date: str, start_time: str) -> dict[str, str]:
     """两条提醒的计划触发时刻（上海时区）。"""
     start = _dt(exam_date, start_time)
     day_before = (start - timedelta(days=1)).replace(
-        hour=config.DAY_BEFORE_HOUR,
-        minute=config.DAY_BEFORE_MINUTE,
+        hour=settings.day_before_hour,
+        minute=settings.day_before_minute,
         second=0,
         microsecond=0,
     )
@@ -197,9 +197,9 @@ def queue_reminders() -> dict[str, int]:
             weekday_num = int(
                 _dt(g["exam_date"], g["start_time"]).weekday()
             ) + 1
-            # 两小时和两小时以内统一用 t2h 话术；@ 名单、异常清单与模板无关
+            # 用 t2h 模板拼装以取得 @名单与异常清单（与具体话术无关）
             message, _, missing = _build_message(
-                template=t2h_invigilator_msg,
+                template=settings.t2h_template,
                 rooms=rooms,
                 exam_date=g["exam_date"],
                 start_time=g["start_time"],
@@ -222,20 +222,22 @@ def queue_reminders() -> dict[str, int]:
             ]
             recipients = _collect_recipients(reminded)
 
-            rows = [(config.REMINDER_T2H, t2h_invigilator_msg, message)]
-            if g["exam_date"] > today:
+            rows: list[tuple[str, str]] = []
+            if settings.t2h_enabled:
+                rows.append((config.REMINDER_T2H, message))
+            if settings.day_before_enabled and g["exam_date"] > today:
                 # 前一天提醒：仅考试还没进入当天时才有「明天」话术
                 day_msg, _, _ = _build_message(
-                    template=daybefore_invigilator_msg,
+                    template=settings.day_before_template,
                     rooms=rooms,
                     exam_date=g["exam_date"],
                     start_time=g["start_time"],
                     end_time=g["end_time"],
                     weekday_num=weekday_num,
                 )
-                rows.append((config.REMINDER_DAY_BEFORE, daybefore_invigilator_msg, day_msg))
+                rows.append((config.REMINDER_DAY_BEFORE, day_msg))
 
-            for reminder_type, _, row_message in rows:
+            for reminder_type, row_message in rows:
                 _, action = db.upsert_reminder(
                     conn,
                     reminder_type=reminder_type,

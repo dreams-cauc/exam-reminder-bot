@@ -29,6 +29,21 @@ from .reminders import (
     set_last_error,
 )
 from .imports import create_batch, add_error, finalize_batch
+from .admin import (
+    list_exam_rows,
+    list_invigilator_rows,
+    list_due_reminder_rows,
+    update_course_name,
+    update_room_name,
+    update_slot,
+    update_invigilator,
+    update_teacher,
+    delete_exam,
+    delete_invigilator,
+    cancel_reminder,
+    get_stats,
+    cleanup_expired,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -67,4 +82,17 @@ __all__ = [
     "create_batch",
     "add_error",
     "finalize_batch",
+    "list_exam_rows",
+    "list_invigilator_rows",
+    "list_due_reminder_rows",
+    "update_course_name",
+    "update_room_name",
+    "update_slot",
+    "update_invigilator",
+    "update_teacher",
+    "delete_exam",
+    "delete_invigilator",
+    "cancel_reminder",
+    "get_stats",
+    "cleanup_expired",
 ]

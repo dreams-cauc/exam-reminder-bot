@@ -22,12 +22,13 @@ def setup_logger() -> None:
 
 
 def _cmd_hello(args: argparse.Namespace) -> int:
-    from ..utils import config, dingtalk
+    from ..utils import dingtalk
+    from ..utils.settings import settings
     from ..core import greeting
 
-    if not config.WEBHOOK_URL or not config.SECRET:
+    if not settings.webhook_url or not settings.secret:
         if not args.dry_run:
-            logging.error(".env 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
+            logging.error("setting.json 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
             return 1
     try:
         result = greeting.send_hello(dry_run=args.dry_run)
@@ -79,12 +80,13 @@ def _cmd_iptxlsx(args: argparse.Namespace) -> int:
 
 def _cmd_server(args: argparse.Namespace) -> int:
     from ..utils import config
+    from ..utils.settings import settings
     from ..core import scheduler, service
 
     config.ensure_dirs()
-    if not config.WEBHOOK_URL or not config.SECRET:
+    if not settings.webhook_url or not settings.secret:
         if not args.dry_run:
-            logging.error(".env 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
+            logging.error("setting.json 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
             return 1
 
     if args.once:
@@ -150,8 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_main(argv: list[str] | None = None) -> int:
+    from ..utils.settings import settings
+
     args = build_parser().parse_args(argv)
     setup_logger()
+    settings.ensure_initialized()
     func: Callable[[argparse.Namespace], int] = args.func
     return func(args)
 

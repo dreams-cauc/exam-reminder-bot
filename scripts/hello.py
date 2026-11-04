@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.utils import config, dingtalk, log  # noqa: E402
+from src.utils.settings import settings  # noqa: E402
 from src.core import greeting  # noqa: E402
 
 
@@ -30,11 +31,12 @@ def main() -> int:
     args = parser.parse_args()
 
     setup_logger()
+    settings.ensure_initialized()
     config.ensure_dirs()
 
-    if not config.WEBHOOK_URL or not config.SECRET:
+    if not settings.webhook_url or not settings.secret:
         if not args.dry_run:
-            logging.error(".env 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
+            logging.error("setting.json 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
             return 1
 
     try:

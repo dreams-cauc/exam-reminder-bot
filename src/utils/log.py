@@ -11,6 +11,8 @@ from . import config
 SUCCESS = 25
 logging.addLevelName(SUCCESS, "SUCCESS")
 
+_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
+
 
 def _success(self, message: str, *args: object, **kwargs: object) -> None:
     if self.isEnabledFor(SUCCESS):
@@ -29,6 +31,11 @@ class _Formatter(logging.Formatter):
         )
 
 
+def get_formatter() -> logging.Formatter:
+    """统一日志格式；供终端处理器与界面日志处理器复用。"""
+    return _Formatter(_LOG_FORMAT)
+
+
 def setup() -> None:
     """配置根 logger 输出格式；重复调用不会叠加处理器。"""
     root = logging.getLogger()
@@ -36,6 +43,6 @@ def setup() -> None:
     if any(getattr(h, "_monitor_std", False) for h in root.handlers):
         return
     handler = logging.StreamHandler()
-    handler.setFormatter(_Formatter("[%(asctime)s] [%(levelname)s] %(message)s"))
+    handler.setFormatter(get_formatter())
     setattr(handler, "_monitor_std", True)
     root.addHandler(handler)

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-全局配置：路径、时区、钉钉凭证(.env)、提醒时刻参数。
+全局配置：运行目录、时区、提醒时刻与轮询的默认参数。
+
+运行期数据（SQLite 数据库与用户配置）统一放在系统 AppData 目录下，
+与源码、git 工作区隔离；用户可调参数落在 setting.json，由 settings 模块读写。
 """
 
 from __future__ import annotations
@@ -9,30 +12,29 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env")
+
+# 应用名：AppData 目录名与配置文件名都基于它
+APP_NAME = "ExamMonitor"
 
 
-def _clean(value: str | None) -> str:
-    """去掉配置值两端的空白与引号"""
-    if not value:
-        return ""
-    return value.strip().strip("\"' ")
+def _app_data_dir() -> Path:
+    # Windows 下 APPDATA 即 Roaming；其它平台回退到 ~/.config
+    base = os.getenv("APPDATA") or (Path.home() / ".config")
+    return Path(base) / APP_NAME
 
 
-DATA_DIR: Path = PROJECT_ROOT / "data"
+APP_DATA_DIR: Path = _app_data_dir()
+DATA_DIR: Path = APP_DATA_DIR / "data"
 DB_PATH: Path = DATA_DIR / "monitor.db"
-USER_JSON_PATH: Path = PROJECT_ROOT / "user.json"
+SETTINGS_PATH: Path = APP_DATA_DIR / "setting.json"
 
-WEBHOOK_URL: str = _clean(os.getenv("webhook_url"))
-SECRET: str = _clean(os.getenv("secret"))
-DINGTALK_USERID: str = _clean(os.getenv("dingtalk_userid"))
+# 教师名册是用户手动放置的导入源文件，仍从项目根目录读取作为默认值
+USER_JSON_PATH: Path = PROJECT_ROOT / "user.json"
 
 TZ_NAME: str = "Asia/Shanghai"
 
-# 考试前一天 18:00
+# 提醒时刻默认参数（可在 setting.json 中覆盖）
 DAY_BEFORE_HOUR: int = 18
 DAY_BEFORE_MINUTE: int = 0
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import requests
 
 from . import config
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +72,10 @@ def send_text(
     at_mobiles   要 @ 的手机号列表
     is_at_all    是否 @所有人
     """
-    webhook_url = (webhook_url if webhook_url is not None else config.WEBHOOK_URL).strip()
-    secret = (secret if secret is not None else config.SECRET).strip()
+    webhook_url = (webhook_url if webhook_url is not None else settings.webhook_url).strip()
+    secret = (secret if secret is not None else settings.secret).strip()
     if not webhook_url or not secret:
-        raise DingTalkError(".env 中缺少 webhook_url 或 secret")
+        raise DingTalkError("setting.json 中缺少 webhook_url 或 secret")
 
     url = _build_url(webhook_url, secret)
     body = {
