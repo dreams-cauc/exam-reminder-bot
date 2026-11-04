@@ -175,82 +175,70 @@ CREATE TABLE IF NOT EXISTS import_errors (
 CREATE INDEX IF NOT EXISTS idx_import_errors_batch ON import_errors (batch_id);
 
 -- =============================================================================
--- 视图（面向用户查看，只暴露业务字段，不含 UUID / created_at / updated_at）
+-- 视图
+--   用户查看类（v_exam_details / v_invigilator_details）：不暴露 UUID 等系统字段。
+--   轮询服务类（v_due_reminders）：保留 reminder_id，供后台 claim 提醒使用。
 -- =============================================================================
 
--- 教师名册
+-- 清理旧版视图（v1/v2 遗留），仅保留下列 3 个视图
 DROP VIEW IF EXISTS v_teachers;
-CREATE VIEW v_teachers AS
-SELECT name, dingtalk_id, mobile, role, is_active
-FROM teachers
-ORDER BY name;
-
--- 课程字典
 DROP VIEW IF EXISTS v_courses;
-CREATE VIEW v_courses AS
-SELECT code, name
-FROM courses
-ORDER BY code, name;
-
--- 考场字典
 DROP VIEW IF EXISTS v_rooms;
-CREATE VIEW v_rooms AS
-SELECT name, campus, building, room_no
-FROM rooms
-ORDER BY name;
-
--- 考试时间段
 DROP VIEW IF EXISTS v_exam_slots;
-CREATE VIEW v_exam_slots AS
-SELECT exam_date, start_time, end_time
-FROM exam_slots
-ORDER BY exam_date, start_time, end_time;
-
--- 监考安排总览：谁在哪间考场监考哪门课（核心查询视图）
 DROP VIEW IF EXISTS v_invigilation_schedule;
-CREATE VIEW v_invigilation_schedule AS
-SELECT
-    c.code            AS course_code,
-    c.name            AS course_name,
-    s.exam_date,
-    s.start_time,
-    s.end_time,
-    r.name            AS room_name,
-    i.seat_label,
-    COALESCE(t.name, i.teacher_name) AS teacher_name,
-    COALESCE(t.mobile, '')           AS mobile,
-    CASE WHEN i.teacher_id IS NULL THEN '名册外' ELSE '名册内' END AS roster_status
-FROM exam_invigilators i
-JOIN exams        e ON e.id = i.exam_id
-JOIN courses      c ON c.id = e.course_id
-JOIN rooms        r ON r.id = e.room_id
-JOIN exam_slots   s ON s.id = e.slot_id
-LEFT JOIN teachers t ON t.id = i.teacher_id
-ORDER BY s.exam_date, s.start_time, r.name, i.rowid;
-
--- 提醒队列状态
 DROP VIEW IF EXISTS v_reminder_status;
-CREATE VIEW v_reminder_status AS
+DROP VIEW IF EXISTS v_import_history;
+
+-- 考试全貌：考试 + 课程 + 考场 + 时间段
+DROP VIEW IF EXISTS v_exam_details;
+CREATE VIEW v_exam_details AS
 SELECT
-    r.reminder_type,
+    c.name      AS course_name,
+    r.name      AS room_name,
     s.exam_date,
     s.start_time,
     s.end_time,
-    r.scheduled_at,
-    r.status,
-    r.attempts,
-    r.sent_at,
-    r.last_error
-FROM reminders r
-JOIN exam_slots s ON s.id = r.slot_id
-ORDER BY r.scheduled_at, r.reminder_type;
+    e.enrolled,
+    e.required
+FROM exams e
+JOIN courses c    ON e.course_id = c.id
+JOIN rooms r      ON e.room_id = r.id
+JOIN exam_slots s ON e.slot_id = s.id;
 
--- 导入历史（按最近一次导入在前）
-DROP VIEW IF EXISTS v_import_history;
-CREATE VIEW v_import_history AS
-SELECT source_type, source_file, rows_seen, rows_imported, rows_rejected
-FROM import_batches
-ORDER BY rowid DESC;
+-- 监考人员全貌：监考安排 + 考试信息 + 教师名册（名册外教师 mobile/dingtalk_id/role 为 NULL）
+DROP VIEW IF EXISTS v_invigilator_details;
+CREATE VIEW v_invigilator_details AS
+SELECT
+    c.name        AS course_name,
+    r.name        AS room_name,
+    s.exam_date,
+    s.start_time,
+    i.seat_label,
+    i.teacher_name,
+    t.mobile,
+    t.dingtalk_id,
+    t.role
+FROM exam_invigilators i
+JOIN exams e       ON e.id = i.exam_id
+JOIN courses c     ON c.id = e.course_id
+JOIN rooms r       ON r.id = e.room_id
+JOIN exam_slots s  ON s.id = e.slot_id
+LEFT JOIN teachers t ON t.id = i.teacher_id;
+
+-- 轮询服务专用：待发提醒 + 收件人快照（一行一个收件人）
+DROP VIEW IF EXISTS v_due_reminders;
+CREATE VIEW v_due_reminders AS
+SELECT
+    r.id              AS reminder_id,
+    r.reminder_type,
+    r.scheduled_at,
+    r.message,
+    r.exception_message,
+    rr.teacher_name,
+    rr.mobile
+FROM reminders r
+JOIN reminder_recipients rr ON rr.reminder_id = r.id
+WHERE r.status = 'pending';
 
 -- =============================================================================
 -- 触发器：维护 updated_at / sent_at 审计字段，保证不依赖具体业务代码路径
