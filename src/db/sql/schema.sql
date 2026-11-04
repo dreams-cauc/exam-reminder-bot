@@ -171,7 +171,7 @@ CREATE INDEX IF NOT EXISTS idx_import_errors_batch ON import_errors (batch_id);
 -- =============================================================================
 -- 视图
 --   用户查看类（v_exam_details / v_invigilator_details）：不暴露 UUID 等系统字段。
---   轮询服务类（v_due_reminders）：保留 reminder_id，供后台 claim 提醒使用。
+--   轮询服务类（v_due_reminders）：保留提醒ID，供后台 claim 提醒使用。
 -- =============================================================================
 
 -- 清理旧版视图（v1/v2 遗留），仅保留下列 3 个视图
@@ -187,29 +187,29 @@ DROP VIEW IF EXISTS v_import_history;
 DROP VIEW IF EXISTS v_exam_details;
 CREATE VIEW v_exam_details AS
 SELECT
-    c.name      AS course_name,
-    r.name      AS room_name,
-    s.exam_date,
-    s.start_time,
-    s.end_time
+    c.name       AS 课程名,
+    r.name       AS 考场名,
+    s.exam_date  AS 考试日期,
+    s.start_time AS 开始时间,
+    s.end_time   AS 结束时间
 FROM exams e
 JOIN courses c    ON e.course_id = c.id
 JOIN rooms r      ON e.room_id = r.id
 JOIN exam_slots s ON e.slot_id = s.id;
 
--- 监考人员全貌：监考安排 + 考试信息 + 教师名册（名册外教师 mobile/dingtalk_id/role 为 NULL）
+-- 监考人员全貌：监考安排 + 考试信息 + 教师名册（名册外教师手机号/钉钉号/角色为 NULL）
 DROP VIEW IF EXISTS v_invigilator_details;
 CREATE VIEW v_invigilator_details AS
 SELECT
-    c.name        AS course_name,
-    r.name        AS room_name,
-    s.exam_date,
-    s.start_time,
-    i.seat_label,
-    i.teacher_name,
-    t.mobile,
-    t.dingtalk_id,
-    t.role
+    c.name         AS 课程名,
+    r.name         AS 考场名,
+    s.exam_date    AS 考试日期,
+    s.start_time   AS 开始时间,
+    i.seat_label   AS 监考座位,
+    i.teacher_name AS 教师姓名,
+    t.mobile       AS 手机号,
+    t.dingtalk_id  AS 钉钉号,
+    t.role         AS 角色
 FROM exam_invigilators i
 JOIN exams e       ON e.id = i.exam_id
 JOIN courses c     ON c.id = e.course_id
@@ -221,13 +221,13 @@ LEFT JOIN teachers t ON t.id = i.teacher_id;
 DROP VIEW IF EXISTS v_due_reminders;
 CREATE VIEW v_due_reminders AS
 SELECT
-    r.id              AS reminder_id,
-    r.reminder_type,
-    r.scheduled_at,
-    r.message,
-    r.exception_message,
-    rr.teacher_name,
-    rr.mobile
+    r.id                AS 提醒ID,
+    r.reminder_type     AS 提醒类型,
+    r.scheduled_at      AS 计划触发时间,
+    r.message           AS 消息内容,
+    r.exception_message AS 异常消息,
+    rr.teacher_name     AS 教师姓名,
+    rr.mobile           AS 手机号
 FROM reminders r
 JOIN reminder_recipients rr ON rr.reminder_id = r.id
 WHERE r.status = 'pending';
