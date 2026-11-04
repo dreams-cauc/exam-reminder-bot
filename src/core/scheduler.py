@@ -177,9 +177,9 @@ def queue_reminders() -> dict[str, int]:
     话术。考试已进入当天（含导入时已不足两小时）只建 t2h 行——到点即发，
     不会漏掉临近的监考，也不会再发误导性的「您明天的监考信息」。
     已发出（sent）的提醒不改动，保证重导入不重复打扰教师。
-    返回 created / updated / kept 计数。
+    返回 totalReminders / waitingReminders / reminded 计数。
     """
-    stats = {"created": 0, "updated": 0, "kept": 0}
+    stats = {"totalReminders": 0, "waitingReminders": 0, "reminded": 0}
     live_slot_ids: set[str] = set()
 
     with db.session() as conn:
@@ -247,7 +247,12 @@ def queue_reminders() -> dict[str, int]:
                     exception_message=exception_message,
                     recipients=recipients,
                 )
-                stats[action] += 1
+                # created/updated 最终都是待发（pending），kept 是已发出/发送中
+                stats["totalReminders"] += 1
+                if action == "kept":
+                    stats["reminded"] += 1
+                else:
+                    stats["waitingReminders"] += 1
                 live_slot_ids.add(g["id"])
 
         # 考试进入当天后，作废还没发出的前一天提醒（t2h 行负责临近提醒）

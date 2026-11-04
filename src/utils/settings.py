@@ -2,10 +2,10 @@
 """
 用户配置单一来源：AppData/ExamMonitor/setting.json。
 
-钉钉凭证与提醒参数（开关、时刻、话术模板）都在此文件里；首次运行时把
-历史 .env 里的钉钉凭证迁入，之后 .env 不再被读取。运行期通过单例
+钉钉凭证与提醒参数（开关、时刻、话术模板）都由用户在界面里配置并手动保存，
+代码不从 .env 自动加载任何参数；打包后同样由用户自行填写。运行期通过单例
 `settings` 读写，`save()` 显式落盘；`ensure_initialized()` 在应用启动时
-调用一次，完成迁移与建档。
+调用一次，缺失配置时写入默认值建档。
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import copy
 import json
 import logging
 from pathlib import Path
-
-from dotenv import dotenv_values
 
 from . import config
 
@@ -93,27 +91,6 @@ def _read_file(path: Path) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
-def _migrate_env(data: dict) -> bool:
-    """把历史 .env 中的钉钉凭证迁入（仅当目标为空时），返回是否发生变更。"""
-    env_path = config.PROJECT_ROOT / ".env"
-    if not env_path.exists():
-        return False
-    env = dotenv_values(env_path)
-    dingtalk = data.setdefault("dingtalk", {})
-    changed = False
-    if not str(dingtalk.get("webhook_url", "")).strip():
-        value = str(env.get("webhook_url", "") or "").strip()
-        if value:
-            dingtalk["webhook_url"] = value
-            changed = True
-    if not str(dingtalk.get("secret", "")).strip():
-        value = str(env.get("secret", "") or "").strip()
-        if value:
-            dingtalk["secret"] = value
-            changed = True
-    return changed
-
-
 class _Settings:
     """内存中的配置快照；访问即懒加载，落盘由 save() 显式触发。"""
 
@@ -122,14 +99,13 @@ class _Settings:
 
     # -- 生命周期 -------------------------------------------------
     def ensure_initialized(self) -> None:
-        """加载配置；首次运行（无配置文件）时迁移 .env 并落盘。"""
+        """加载配置；首次运行（无配置文件）时写入默认值建档。"""
         if self._data is not None:
             return
         config.ensure_dirs()
         exists = config.SETTINGS_PATH.exists()
         self._data = _deep_merge(DEFAULTS, _read_file(config.SETTINGS_PATH))
         if not exists:
-            _migrate_env(self._data)
             self.save()
 
     def save(self) -> None:

@@ -336,6 +336,15 @@ class MainWindow(QMainWindow):
     def _on_start_service(self) -> None:
         if self._service.isRunning():
             return
+        # 未配置钉钉凭证时禁止启动，避免启动后每条都因缺少 webhook/secret 发送失败
+        if not settings.webhook_url or not settings.secret:
+            QMessageBox.warning(
+                self,
+                "未配置钉钉",
+                "尚未配置钉钉机器人（webhook_url 或 secret 为空）。\n"
+                "请先在「钉钉配置」中填写并保存，再启动服务。",
+            )
+            return
         self._service.start()
         self._set_service_state(True)
 
