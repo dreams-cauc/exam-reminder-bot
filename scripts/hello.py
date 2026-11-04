@@ -16,15 +16,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.utils import config, dingtalk  # noqa: E402
+from src.utils import config, dingtalk, log  # noqa: E402
 from src.core import greeting  # noqa: E402
 
 
 def setup_logger() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)-10s %(levelname)-8s %(message)s [%(filename)s:%(lineno)d]",
-    )
+    log.setup()
 
 
 def main() -> int:

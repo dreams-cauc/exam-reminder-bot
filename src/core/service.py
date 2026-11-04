@@ -19,10 +19,7 @@ logger = logging.getLogger(__name__)
 def run_loop(*, dry_run: bool = False, interval: int | None = None) -> None:
     """持续运行。Ctrl+C 正常退出。"""
     interval = interval or config.POLL_INTERVAL_SECONDS
-    logger.info(
-        "监考提醒服务启动  db=%s  间隔=%ds  dry_run=%s",
-        config.DB_PATH, interval, dry_run,
-    )
+    logger.info("监考提醒服务已启动。")
     # 启动即重建一次队列，保证库里考试变化能立刻反映到提醒
     scheduler.queue_reminders()
 

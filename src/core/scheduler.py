@@ -277,11 +277,19 @@ def process_due(*, dry_run: bool = False) -> int:
         if stale:
             logger.info("取消 %d 条过时的前一天提醒（考试已进入当天）", stale)
         due = db.fetch_due(conn, now)
+        due_rooms = db.count_due_rooms(conn, now)
 
     if not due:
         return 0
 
-    logger.info("到点提醒 %d 条", len(due))
+    for rtype, label in (
+        (config.REMINDER_DAY_BEFORE, "前一天"),
+        (config.REMINDER_T2H, "考前2小时"),
+    ):
+        rooms = due_rooms.get(rtype, 0)
+        if rooms:
+            logger.info("触发【%s】提醒任务，共计 %d 个考场。", label, rooms)
+
     sent = 0
     for row in due:
         if dry_run:
@@ -308,13 +316,16 @@ def process_due(*, dry_run: bool = False) -> int:
         except dingtalk.DingTalkError as exc:
             with db.session() as conn:
                 db.mark_failed(conn, row["id"], str(exc))
-            logger.error("提醒发送异常 id=%s：%s", row["id"], exc)
+            logger.error("消息发送失败：%s", exc)
             continue
 
         if not result.ok:
             with db.session() as conn:
                 db.mark_failed(conn, row["id"], result.error_text)
-            logger.error("提醒发送失败 id=%s：%s", row["id"], result.error_text)
+            logger.error(
+                "消息发送失败钉钉返回：errcode %s, %s。",
+                result.errcode, result.errmsg,
+            )
             continue
 
         with db.session() as conn:
@@ -334,6 +345,6 @@ def process_due(*, dry_run: bool = False) -> int:
                 except dingtalk.DingTalkError as exc:
                     db.set_last_error(conn, row["id"], f"异常提醒未发出: {exc}")
         sent += 1
-        logger.info("已发送 %s id=%s", row["reminder_type"], row["id"])
+        logger.success("已向群聊发送提醒，轮询ID为：%s", row["id"])
 
     return sent

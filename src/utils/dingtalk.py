@@ -88,24 +88,32 @@ def send_text(
     }
     headers = {"Content-Type": "application/json"}
 
+    for attempt in range(1, config.DINGTALK_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            if attempt < config.DINGTALK_MAX_ATTEMPTS:
+                logger.warning(
+                    "请求超时，已触发重试，%d秒后重试 (%d/%d)...",
+                    config.DINGTALK_RETRY_DELAY_SECONDS,
+                    attempt,
+                    config.DINGTALK_MAX_ATTEMPTS,
+                )
+                time.sleep(config.DINGTALK_RETRY_DELAY_SECONDS)
+                continue
+            raise DingTalkError(f"钉钉请求失败：{exc}") from exc
+        break
+
     try:
-        resp = requests.post(url, json=body, headers=headers, timeout=timeout)
-        resp.raise_for_status()
         payload = resp.json()
-    except requests.RequestException as exc:
-        raise DingTalkError(f"钉钉请求失败：{exc}") from exc
     except ValueError as exc:
         raise DingTalkError(f"钉钉响应非 JSON：{resp.text[:200]}") from exc
 
     errcode = int(payload.get("errcode", -1))
-    result = SendResult(
+    return SendResult(
         ok=(errcode == 0),
         errcode=errcode,
         errmsg=str(payload.get("errmsg", "")),
         raw=payload,
     )
-    if result.ok:
-        logger.info("钉钉发送成功：%s", content.splitlines()[0] if content else "")
-    else:
-        logger.warning("钉钉发送失败：%s", result.error_text)
-    return result

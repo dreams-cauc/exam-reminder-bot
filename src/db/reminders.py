@@ -126,6 +126,21 @@ def expire_overdue(conn: sqlite3.Connection, now: str) -> int:
     return cur.rowcount
 
 
+def count_due_rooms(conn: sqlite3.Connection, now: str) -> dict[str, int]:
+    """统计到点待发提醒按类型覆盖的考场（考试）数。"""
+    rows = conn.execute(
+        "SELECT r.reminder_type AS reminder_type, COUNT(e.id) AS rooms"
+        " FROM reminders r"
+        " JOIN exam_slots s ON s.id = r.slot_id"
+        " JOIN exams e ON e.slot_id = r.slot_id"
+        " WHERE r.status = ? AND r.scheduled_at <= ?"
+        "   AND (s.exam_date || ' ' || s.end_time) > ?"
+        " GROUP BY r.reminder_type",
+        (STATUS_PENDING, now, now),
+    ).fetchall()
+    return {row["reminder_type"]: row["rooms"] for row in rows}
+
+
 def reminder_recipients(conn: sqlite3.Connection, reminder_id: str) -> list[sqlite3.Row]:
     """返回一条提醒的收件人（按插入顺序）。"""
     return conn.execute(

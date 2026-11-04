@@ -46,6 +46,10 @@ REMINDER_T2H: str = "t2h"
 # 轮询发送队列轮询间隔（秒）。SQLite 即队列，此处只是心跳。
 POLL_INTERVAL_SECONDS: int = 30
 
+# 钉钉发送重试：网络/超时等异常时的最大尝试次数与重试间隔（秒）
+DINGTALK_MAX_ATTEMPTS: int = 3
+DINGTALK_RETRY_DELAY_SECONDS: int = 10
+
 
 def ensure_dirs() -> None:
     """创建运行所需的目录。"""

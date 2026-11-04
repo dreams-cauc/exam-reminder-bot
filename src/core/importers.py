@@ -19,12 +19,12 @@ from pathlib import Path
 import pandas as pd
 
 if __package__:
-    from ..utils import config, parsing
+    from ..utils import config, parsing, log
     from .. import db
     from . import messages
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from src.utils import config, parsing
+    from src.utils import config, parsing, log
     from src import db
     from src.core import messages
 
@@ -188,6 +188,7 @@ def import_excel(path: Path | str) -> ImportReport:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"未找到 Excel 文件: {path}")
+    logger.info("用户手动导入监考表(%s)", path)
 
     df = pd.read_excel(path, sheet_name=0, header=None, dtype=str)
     df = df.fillna("")
@@ -276,15 +277,17 @@ def import_excel(path: Path | str) -> ImportReport:
             rows_rejected=len(report.rejected),
         )
 
-    logger.info("Excel 导入完成:\n%s", report.summary())
+    logger.info(
+        "导入完成：解析 %d 行，新增考试 %d 场。",
+        report.rows_seen, report.rows_imported,
+    )
+    if report.missing_teachers:
+        logger.warning("学院系外监考教师共%d位", len(report.missing_teachers))
     return report
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)-10s %(levelname)-8s %(message)s",
-    )
+    log.setup()
     parser = argparse.ArgumentParser(description="导入教师名册与监考安排")
     parser.add_argument("excel_path", nargs="?", help="教务导出的 .xlsx 文件路径（可省略）")
     parser.add_argument(

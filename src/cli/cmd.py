@@ -14,12 +14,11 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from ..utils import log
+
 
 def setup_logger() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)-10s %(levelname)-8s %(message)s [%(filename)s:%(lineno)d]",
-    )
+    log.setup()
 
 
 def _cmd_hello(args: argparse.Namespace) -> int:
