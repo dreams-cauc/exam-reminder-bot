@@ -5,6 +5,7 @@
 .*/
 
 __pycache__/
+*_rc.py
 test/*
 
 dist/

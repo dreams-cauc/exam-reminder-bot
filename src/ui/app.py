@@ -5,17 +5,26 @@ from __future__ import annotations
 
 import sys
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QFile, QIODevice, Qt
 from PyQt5.QtWidgets import QApplication
 
-from ..utils import config, log
+# 导入即注册 qrc 编译进来的 Qt 资源（样式文件被打包进资源，便于后续打包分发）
+from ..style import resources_rc  # noqa: F401
+from ..utils import log
 from ..utils.settings import settings
 from .main_window import MainWindow
 
+_QSS_RESOURCE = ":/style/light.qss"
+
 
 def _load_qss() -> str:
-    path = config.PROJECT_ROOT / "src" / "style" / "light.qss"
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    """从 Qt 资源系统读取样式，不依赖运行时的外部文件路径。"""
+    qss = QFile(_QSS_RESOURCE)
+    if not qss.open(QIODevice.ReadOnly | QIODevice.Text):
+        return ""
+    data = bytes(qss.readAll()).decode("utf-8")
+    qss.close()
+    return data
 
 
 def run() -> int:
