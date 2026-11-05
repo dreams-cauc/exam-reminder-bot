@@ -757,7 +757,7 @@
                 <item>
                  <widget class="QPushButton" name="btnCleanup">
                   <property name="text">
-                   <string>清理已过期任务</string>
+                   <string>清理过期数据</string>
                   </property>
                   <property name="type" stdset="0">
                    <string>danger</string>

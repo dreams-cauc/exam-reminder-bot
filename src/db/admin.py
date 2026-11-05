@@ -13,7 +13,6 @@ from .connection import now_str
 from .reminders import (
     STATUS_PENDING,
     STATUS_SENT,
-    STATUS_EXPIRED,
     STATUS_CANCELLED,
 )
 
@@ -182,10 +181,49 @@ def get_stats(conn: sqlite3.Connection) -> dict[str, int]:
     return {"task": task, "pending": pending, "done": done}
 
 
-def cleanup_expired(conn: sqlite3.Connection) -> int:
-    """删除已过期、已取消的提醒（收件人快照级联删除），返回删除条数。"""
-    cur = conn.execute(
-        "DELETE FROM reminders WHERE status IN (?, ?)",
-        (STATUS_EXPIRED, STATUS_CANCELLED),
-    )
-    return cur.rowcount
+def cleanup_expired(conn: sqlite3.Connection) -> dict[str, int]:
+    """删除所有「已结束」时间段的监考数据，返回各表删除条数。
+
+    判定：exam_date + end_time <= 当前时刻（整段考试已结束）。按外键依赖顺序
+    依次清理收件人快照、提醒、监考安排、考试，最后删除时间段本身；
+    courses / rooms 字典表保留。
+    """
+    now = now_str()
+
+    def expired_slots() -> str:
+        return (
+            "SELECT id FROM exam_slots "
+            "WHERE (exam_date || ' ' || end_time) <= ?"
+        )
+
+    # 收件人快照随 reminders 级联删除，监考安排随 exams 级联删除；此处显式删除
+    # 各父表以便统计，顺序为「先子后父」，避免 exam_slots 的 ON DELETE RESTRICT 冲突。
+    n_recipients = conn.execute(
+        "DELETE FROM reminder_recipients WHERE reminder_id IN ("
+        " SELECT id FROM reminders WHERE slot_id IN (" + expired_slots() + "))",
+        (now,),
+    ).rowcount
+    n_reminders = conn.execute(
+        "DELETE FROM reminders WHERE slot_id IN (" + expired_slots() + ")",
+        (now,),
+    ).rowcount
+    n_invigilators = conn.execute(
+        "DELETE FROM exam_invigilators WHERE exam_id IN ("
+        " SELECT id FROM exams WHERE slot_id IN (" + expired_slots() + "))",
+        (now,),
+    ).rowcount
+    n_exams = conn.execute(
+        "DELETE FROM exams WHERE slot_id IN (" + expired_slots() + ")",
+        (now,),
+    ).rowcount
+    n_slots = conn.execute(
+        "DELETE FROM exam_slots WHERE (exam_date || ' ' || end_time) <= ?",
+        (now,),
+    ).rowcount
+    return {
+        "slots": n_slots,
+        "exams": n_exams,
+        "invigilators": n_invigilators,
+        "reminders": n_reminders,
+        "recipients": n_recipients,
+    }

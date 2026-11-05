@@ -398,7 +398,7 @@ class Ui_MainWindow(object):
         self.lblStatDoneVal.setText(_translate("MainWindow", "0"))
         self.lblStatDoneVal.setProperty("type", _translate("MainWindow", "statValue"))
         self.grpMaintenance.setTitle(_translate("MainWindow", "维护"))
-        self.btnCleanup.setText(_translate("MainWindow", "清理已过期任务"))
+        self.btnCleanup.setText(_translate("MainWindow", "清理过期数据"))
         self.btnCleanup.setProperty("type", _translate("MainWindow", "danger"))
         self.configTabs.setTabText(self.configTabs.indexOf(self.tabDatabase), _translate("MainWindow", "数据库"))
         self.logCard.setProperty("card", _translate("MainWindow", "true"))

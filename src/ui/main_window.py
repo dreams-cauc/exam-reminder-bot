@@ -411,11 +411,18 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "钉钉配置", "钉钉配置已保存。")
 
     def _on_cleanup(self) -> None:
-        if not self._confirm("确认清理已过期/已取消的提醒？"):
+        if not self._confirm(
+            "确认清理所有已结束考试的监考数据？\n"
+            "此操作将删除对应的时间段、考试、监考安排与提醒"
+        ):
             return
         with db.session() as conn:
-            n = db.cleanup_expired(conn)
-        logger.info("已清理 %d 条过期/取消的提醒。", n)
+            stats = db.cleanup_expired(conn)
+        logger.info(
+            "已清理过期数据：时间段 %d、考试 %d、监考安排 %d、提醒 %d、收件人 %d。",
+            stats["slots"], stats["exams"], stats["invigilators"],
+            stats["reminders"], stats["recipients"],
+        )
         self._refresh_all()
 
     @staticmethod
