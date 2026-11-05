@@ -144,6 +144,33 @@ def parse_int(raw: object) -> int | None:
 
 _MOBILE_RE = re.compile(r"^1\d{10}$")
 
+# 角色别名 -> 规范角色。大小写由调用处统一转小写后再匹配。
+_ROLE_ALIASES = {
+    "admin": "admin",
+    "administrator": "admin",
+    "管理员": "admin",
+    "管理": "admin",
+    "teacher": "teacher",
+    "教师": "teacher",
+    "老师": "teacher",
+    "developer": "developer",
+    "dev": "developer",
+    "开发者": "developer",
+    "开发": "developer",
+}
+
+
+def normalize_role(value: object) -> str:
+    """角色归一化到 'teacher' / 'admin' / 'developer'。
+
+    兼容中英文别名与大小写；无法识别时抛 ParseError 给出清晰提示，
+    避免把脏角色写进数据库触发 CHECK 约束。
+    """
+    text = normalize_text(value).lower()
+    if text in _ROLE_ALIASES:
+        return _ROLE_ALIASES[text]
+    raise ParseError(f"无法识别的角色：{value!r}（可选：teacher / admin / developer）")
+
 
 def normalize_mobile(value: object) -> str:
     """手机号归一化成 11 位数字。

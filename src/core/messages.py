@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 按名称填充：
-一个考场填一段正文，同一时间段的多个考场段落合并成一条消息，
-结尾补 warm_tip。
+一个考场填一段正文，同一时间段的多个考场段落合并成一条消息
 """
 
 from __future__ import annotations
 
 import re
 
-from .prompt import error_feedback_msg, helloteacher, warm_tip
+from ..utils.prompt import error_feedback_msg, helloteacher, warm_tip
 
 WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -36,16 +35,15 @@ def format_exam_time(exam_date: str, start_time: str, end_time: str, weekday_num
     return f"{exam_date}({wd}) {start_time}-{end_time}"
 
 
-def room_label(campus: str, building: str, room: str) -> str:
+def room_label(building: str, room: str) -> str:
     """考场显示串：`南教3-104`。
 
     教室列本身已含楼号（如 `南教3-104`）时原样返回，避免重复拼接。
     """
     if not room:
-        return f"{campus}{building}"
-    head = f"{campus}{building}"
-    if head and not room.startswith(head):
-        return f"{head}-{room}"
+        return building
+    if building and not room.startswith(building):
+        return f"{building}-{room}"
     return room
 
 
@@ -60,7 +58,7 @@ def build_invigilator_message(
 ) -> str:
     """单个考场的监考提醒正文（含结尾分隔线与空行）。
 
-    template        提醒阶段模板：daybefore_invigilator_msg / t2h_invigilator_msg
+    template        提醒阶段模板（取自 setting.json：day_before_template / t2h_template）
     at_teacher      收件人槽位：可 @ 的填 @手机号，其余填姓名，空格分隔
     course          监考科目
     time            监考时间

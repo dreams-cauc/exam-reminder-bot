@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """数据导入：教务 Excel、教师名册 JSON。
 
-Excel 按表头名取列，不依赖列序号（导出表可能增删列）。
 姓名解析到 teachers 表拿钉钉ID；解析不到的姓名不提醒、不推送管理员，
 只登记在监考名单里，供同场监考教师互知。
 """
@@ -11,6 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
+import sqlite3
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,36 +19,31 @@ from pathlib import Path
 import pandas as pd
 
 if __package__:
-    from . import config, db, parsing
+    from ..utils import config, parsing, log
+    from .. import db
+    from . import messages
 else:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from src import config, db, parsing
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.utils import config, parsing, log
+    from src import db
+    from src.core import messages
 
 
 logger = logging.getLogger(__name__)
 
 # 表头名 -> 内部字段名。未知表头忽略，缺必需表头才报错。
+# 只入库课程/时间/考场/监考教师，其余表头一律忽略。
 COLUMN_ALIASES: dict[str, str] = {
     "课程": "raw_course",
     "考试时间": "raw_time",
-    "考场校区": "campus",
     "楼号": "building",
     "考试教室": "room",
-    "副监考1": "invigilator1",
-    "副监考2": "invigilator2",
-    "选课人数": "enrolled",
-    "要求人数": "required",
-    "主监考学院": "chief_college",
-    "监考学院": "invigilator_college",
 }
 
 REQUIRED_COLUMNS = ("raw_course", "raw_time", "room")
 
-# 监考教师列：顺序即座位标签
-INVIGILATOR_COLUMNS = (
-    ("invigilator1", "副监考1"),
-    ("invigilator2", "副监考2"),
-)
+# 副监考列命名：副监考1、副监考2、副监考3……按序号识别
+_SEAT_RE = re.compile(r"^副监考(\d+)$")
 
 
 @dataclass
@@ -94,6 +90,7 @@ def load_user_json(path: Path | None = None) -> int:
     count = 0
     no_mobile: list[str] = []
     with db.session() as conn:
+        batch_id = db.create_batch(conn, source_type="json", source_file=path.name)
         for name, info in raw.items():
             name = parsing.normalize_name(name)
             if not name:
@@ -102,15 +99,23 @@ def load_user_json(path: Path | None = None) -> int:
                 raise ValueError(f"user.json 中 {name!r} 的值应为对象")
             dingtalkid = str(info.get("dingtalkid", "")).strip()
             mobile = parsing.normalize_mobile(info.get("mobile", ""))
-            role = str(info.get("role", "teacher")).strip() or "teacher"
+            role = parsing.normalize_role(info.get("role") or "teacher")
             if not dingtalkid and not mobile:
                 raise ValueError(
                     f"user.json 中 {name!r} 至少要给 dingtalkid 或 mobile 之一"
                 )
             if not mobile:
                 no_mobile.append(name)
-            db.upsert_teacher(conn, name, dingtalkid, role, mobile=mobile)
+            try:
+                db.upsert_teacher(
+                    conn, name=name, dingtalk_id=dingtalkid, mobile=mobile, role=role,
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"user.json 中 {name!r} 的钉钉账号/手机号与名册中已有教师冲突：{exc}"
+                ) from exc
             count += 1
+        db.finalize_batch(conn, batch_id, rows_seen=count, rows_imported=count, rows_rejected=0)
 
     logger.info("user.json 导入完成：%d 名教师 -> %s", count, config.DB_PATH)
     if no_mobile:
@@ -121,8 +126,32 @@ def load_user_json(path: Path | None = None) -> int:
     return count
 
 
-def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
-    """找到表头行，建立「内部字段名 -> 列下标」映射。
+def _collect_seat_columns(headers: list[str]) -> list[tuple[str, int]]:
+    """从表头识别监考角色列，返回 [(座位标签, 列下标), ...]。
+
+    主监考在前，副监考1、副监考2、副监考3……按序号升序；未出现则不返回。
+    """
+    chief: int | None = None
+    deputies: list[tuple[int, int]] = []
+    for col_idx, header in enumerate(headers):
+        if header == "主监考":
+            chief = col_idx
+            continue
+        m = _SEAT_RE.match(header)
+        if m:
+            deputies.append((int(m.group(1)), col_idx))
+    deputies.sort(key=lambda item: item[0])
+
+    seats: list[tuple[str, int]] = []
+    if chief is not None:
+        seats.append(("主监考", chief))
+    for n, col_idx in deputies:
+        seats.append((f"副监考{n}", col_idx))
+    return seats
+
+
+def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int], list[tuple[str, int]]]:
+    """找到表头行，返回 (表头行号, 固定字段列映射, 监考角色列)。
 
     有些导出表首行是标题行，所以扫前 10 行找同时含「课程」和「考试时间」的行。
     用列下标而非列名映射，规避 pandas 默认把首行当表头的歧义。
@@ -137,8 +166,21 @@ def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
                 field_name = COLUMN_ALIASES.get(header)
                 if field_name:
                     mapping[field_name] = col_idx
-            return idx, mapping
+            return idx, mapping, _collect_seat_columns(values)
     raise ValueError("未找到表头行：需要同时包含「课程」与「考试时间」列")
+
+
+def _resolve(name: str, name_index: dict[str, list[str]]) -> tuple[str | None, str]:
+    """按姓名解析教师 id。返回 (teacher_id, 告警文案)。
+
+    唯一命中返回 id；未命中返回 None；多条同名返回 None 并给出告警。
+    """
+    ids = name_index.get(name, [])
+    if len(ids) == 1:
+        return ids[0], ""
+    if len(ids) > 1:
+        return None, f"姓名 {name} 在名册中有 {len(ids)} 条记录，无法唯一匹配，按名册外处理"
+    return None, ""
 
 
 def import_excel(path: Path | str) -> ImportReport:
@@ -146,11 +188,12 @@ def import_excel(path: Path | str) -> ImportReport:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"未找到 Excel 文件: {path}")
+    logger.info("用户手动导入监考表(%s)", path)
 
     df = pd.read_excel(path, sheet_name=0, header=None, dtype=str)
     df = df.fillna("")
 
-    header_idx, colmap = _locate_header(df)
+    header_idx, colmap, seat_cols = _locate_header(df)
     missing = [c for c in REQUIRED_COLUMNS if c not in colmap]
     if missing:
         raise ValueError(f"Excel 缺少必需列: {missing}（当前映射: {sorted(colmap)}）")
@@ -164,12 +207,9 @@ def import_excel(path: Path | str) -> ImportReport:
             return ""
         return parsing.normalize_text(row.iloc[col_idx])
 
-    # 先建名册索引，一次查库
     with db.session() as conn:
-        known = {
-            row["name"]
-            for row in conn.execute("SELECT name FROM teachers")
-        }
+        batch_id = db.create_batch(conn, source_type="excel", source_file=path.name)
+        name_index = db.teacher_name_index(conn)
 
         for offset, row in body.iterrows():
             excel_row = int(offset) + header_idx + 2   # 1-based，含表头行
@@ -186,56 +226,68 @@ def import_excel(path: Path | str) -> ImportReport:
                     raise parsing.ParseError("考试教室为空")
             except parsing.ParseError as exc:
                 report.rejected.append((excel_row, str(exc)))
+                db.add_error(conn, batch_id, excel_row, str(exc))
                 continue
 
-            exam_fields = {
-                "course_code": course_code,
-                "course_name": course_name,
-                "raw_course": cell(row, "raw_course"),
-                "raw_time": cell(row, "raw_time"),
-                "week_num": et.week_num,
-                "weekday_num": et.weekday_num,
-                "exam_date": et.exam_date,
-                "start_time": et.start_time,
-                "end_time": et.end_time,
-                "campus": cell(row, "campus"),
-                "building": cell(row, "building"),
-                "room": room,
-                "enrolled": parsing.parse_int(cell(row, "enrolled")),
-                "required": parsing.parse_int(cell(row, "required")),
-                "chief_college": cell(row, "chief_college"),
-                "invigilator_college": cell(row, "invigilator_college"),
-                "source_file": path.name,
-            }
-            exam_id = db.insert_exam(conn, exam_fields)
+            building = cell(row, "building")
+            course_id = db.get_or_create_course(conn, code=course_code, name=course_name)
+            slot_id = db.get_or_create_slot(
+                conn,
+                exam_date=et.exam_date,
+                start_time=et.start_time,
+                end_time=et.end_time,
+            )
+            room_label = messages.room_label(building, room)
+            room_id = db.get_or_create_room(
+                conn, name=room_label, building=building, room_no=room,
+            )
+            exam_id = db.upsert_exam(
+                conn,
+                course_id=course_id,
+                room_id=room_id,
+                slot_id=slot_id,
+            )
 
-            seats: list[tuple[str, str, int]] = []
-            for field_name, seat_label in INVIGILATOR_COLUMNS:
-                name = parsing.normalize_name(cell(row, field_name))
+            seats: list[tuple[str | None, str, str]] = []
+            for seat_label, col_idx in seat_cols:
+                name = parsing.normalize_name(row.iloc[col_idx])
                 if not name:
-                    continue   # 副监考2 允许为空
-                resolved = 1 if name in known else 0
-                seats.append((seat_label, name, resolved))
-                if not resolved:
-                    report.missing_teachers.setdefault(name, []).append(
-                        f"行{excel_row}"
-                    )
+                    continue   # 副监考N 允许为空
+                teacher_id, warn = _resolve(name, name_index)
+                seats.append((teacher_id, name, seat_label))
+                if warn:
+                    report.warnings.append(warn)
+                if teacher_id is None:
+                    report.missing_teachers.setdefault(name, []).append(f"行{excel_row}")
+
             if not seats:
-                report.rejected.append((excel_row, "没有任何监考教师（副监考1/副监考2 均为空）"))
+                reason = "没有任何监考教师（主监考/副监考 均为空）"
+                report.rejected.append((excel_row, reason))
+                db.add_error(conn, batch_id, excel_row, reason)
                 continue
 
-            db.set_assignments(conn, exam_id, seats)
+            db.set_invigilators(conn, exam_id, seats)
             report.rows_imported += 1
 
-    logger.info("Excel 导入完成:\n%s", report.summary())
+        db.finalize_batch(
+            conn,
+            batch_id,
+            rows_seen=report.rows_seen,
+            rows_imported=report.rows_imported,
+            rows_rejected=len(report.rejected),
+        )
+
+    logger.info(
+        "导入完成：解析 %d 行，新增考试 %d 场。",
+        report.rows_seen, report.rows_imported,
+    )
+    if report.missing_teachers:
+        logger.warning("学院系外监考教师共%d位", len(report.missing_teachers))
     return report
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)-10s %(levelname)-8s %(message)s",
-    )
+    log.setup()
     parser = argparse.ArgumentParser(description="导入教师名册与监考安排")
     parser.add_argument("excel_path", nargs="?", help="教务导出的 .xlsx 文件路径（可省略）")
     parser.add_argument(
@@ -269,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 60)
 
     if not args.no_queue:
-        from src import scheduler
+        from src.core import scheduler
         print(f"\n提醒队列重建：{scheduler.queue_reminders()}")
 
     return 1 if report.rejected else 0

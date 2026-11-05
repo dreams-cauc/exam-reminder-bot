@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import requests
 
 from . import config
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +72,10 @@ def send_text(
     at_mobiles   要 @ 的手机号列表
     is_at_all    是否 @所有人
     """
-    webhook_url = (webhook_url if webhook_url is not None else config.WEBHOOK_URL).strip()
-    secret = (secret if secret is not None else config.SECRET).strip()
+    webhook_url = (webhook_url if webhook_url is not None else settings.webhook_url).strip()
+    secret = (secret if secret is not None else settings.secret).strip()
     if not webhook_url or not secret:
-        raise DingTalkError(".env 中缺少 webhook_url 或 secret")
+        raise DingTalkError("setting.json 中缺少 webhook_url 或 secret")
 
     url = _build_url(webhook_url, secret)
     body = {
@@ -88,24 +89,32 @@ def send_text(
     }
     headers = {"Content-Type": "application/json"}
 
+    for attempt in range(1, config.DINGTALK_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            if attempt < config.DINGTALK_MAX_ATTEMPTS:
+                logger.warning(
+                    "请求超时，已触发重试，%d秒后重试 (%d/%d)...",
+                    config.DINGTALK_RETRY_DELAY_SECONDS,
+                    attempt,
+                    config.DINGTALK_MAX_ATTEMPTS,
+                )
+                time.sleep(config.DINGTALK_RETRY_DELAY_SECONDS)
+                continue
+            raise DingTalkError(f"钉钉请求失败：{exc}") from exc
+        break
+
     try:
-        resp = requests.post(url, json=body, headers=headers, timeout=timeout)
-        resp.raise_for_status()
         payload = resp.json()
-    except requests.RequestException as exc:
-        raise DingTalkError(f"钉钉请求失败：{exc}") from exc
     except ValueError as exc:
         raise DingTalkError(f"钉钉响应非 JSON：{resp.text[:200]}") from exc
 
     errcode = int(payload.get("errcode", -1))
-    result = SendResult(
+    return SendResult(
         ok=(errcode == 0),
         errcode=errcode,
         errmsg=str(payload.get("errmsg", "")),
         raw=payload,
     )
-    if result.ok:
-        logger.info("钉钉发送成功：%s", content.splitlines()[0] if content else "")
-    else:
-        logger.warning("钉钉发送失败：%s", result.error_text)
-    return result

@@ -14,20 +14,21 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from ..utils import log
+
 
 def setup_logger() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)-10s %(levelname)-8s %(message)s [%(filename)s:%(lineno)d]",
-    )
+    log.setup()
 
 
 def _cmd_hello(args: argparse.Namespace) -> int:
-    from . import config, dingtalk, greeting
+    from ..utils import dingtalk
+    from ..utils.settings import settings
+    from ..core import greeting
 
-    if not config.WEBHOOK_URL or not config.SECRET:
+    if not settings.webhook_url or not settings.secret:
         if not args.dry_run:
-            logging.error(".env 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
+            logging.error("setting.json 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
             return 1
     try:
         result = greeting.send_hello(dry_run=args.dry_run)
@@ -38,7 +39,8 @@ def _cmd_hello(args: argparse.Namespace) -> int:
 
 
 def _cmd_iptjson(args: argparse.Namespace) -> int:
-    from . import config, importers
+    from ..utils import config
+    from ..core import importers
 
     config.ensure_dirs()
     try:
@@ -53,7 +55,8 @@ def _cmd_iptjson(args: argparse.Namespace) -> int:
 
 
 def _cmd_iptxlsx(args: argparse.Namespace) -> int:
-    from . import config, importers, scheduler
+    from ..utils import config
+    from ..core import importers, scheduler
 
     config.ensure_dirs()
     try:
@@ -76,12 +79,14 @@ def _cmd_iptxlsx(args: argparse.Namespace) -> int:
 
 
 def _cmd_server(args: argparse.Namespace) -> int:
-    from . import config, scheduler, service
+    from ..utils import config
+    from ..utils.settings import settings
+    from ..core import scheduler, service
 
     config.ensure_dirs()
-    if not config.WEBHOOK_URL or not config.SECRET:
+    if not settings.webhook_url or not settings.secret:
         if not args.dry_run:
-            logging.error(".env 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
+            logging.error("setting.json 缺少 webhook_url / secret，无法发送。可用 --dry-run 先验证。")
             return 1
 
     if args.once:
@@ -146,12 +151,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def cmd_main(argv: list[str] | None = None) -> int:
+    from ..utils.settings import settings
+
     args = build_parser().parse_args(argv)
     setup_logger()
+    settings.ensure_initialized()
     func: Callable[[argparse.Namespace], int] = args.func
     return func(args)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cmd_main())

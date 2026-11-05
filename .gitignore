@@ -5,10 +5,14 @@
 .*/
 
 __pycache__/
+*_rc.py
 test/*
 
 dist/
 bulid/
+output/
+*exe
+*.iss
 *.build/
 *.log
 
