@@ -14,8 +14,8 @@ import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 
+from .schema import SCHEMA_SQL
 from ..utils import config
 
 # 结构版本号：结构变更时 +1，配合 PRAGMA user_version 做增量迁移
@@ -33,26 +33,6 @@ def new_id() -> str:
     SQLite 未内置 UUID 函数，故主键由应用层生成后写入。
     """
     return str(uuid.uuid4())
-
-
-def _load_schema() -> str:
-    """读取 schema.sql 内容：优先走包资源，失败时回退到文件路径。"""
-    try:
-        from importlib import resources
-
-        return resources.files(__package__).joinpath("sql", "schema.sql").read_text(encoding="utf-8")
-    except (ModuleNotFoundError, TypeError, FileNotFoundError):
-        return (Path(__file__).resolve().parent / "sql" / "schema.sql").read_text(encoding="utf-8")
-
-
-_schema_cache: str | None = None
-
-
-def _schema() -> str:
-    global _schema_cache
-    if _schema_cache is None:
-        _schema_cache = _load_schema()
-    return _schema_cache
 
 
 def _legacy_marker(conn: sqlite3.Connection) -> str:
@@ -168,7 +148,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     if _needs_teacher_migration(conn):
         _migrate_v1_to_v2(conn)
     _migrate_drop_unused_columns(conn)
-    conn.executescript(_schema())
+    conn.executescript(SCHEMA_SQL)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
