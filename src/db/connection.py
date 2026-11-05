@@ -5,13 +5,30 @@
 - 打开连接并设置外键、WAL、busy_timeout 等运行参数；
 - 依据 PRAGMA user_version 判断是否需要初始化/升级表结构，避免每次连接重放 DDL；
 - 提供统一的时间戳与主键生成工具。
+
+结构升级（用户端收到新版后首次启动自动完成，无需人工删库）：
+- 首次运行：数据库为空，创建数据库，并写入 PRAGMA user_version = SCHEMA_VERSION。
+- 后续升级：读到 user_version < SCHEMA_VERSION 时，按 MIGRATIONS 清单中
+  「目标版本 > 当前版本」的顺序逐条执行迁移函数，再重放 schema.sql 补齐新增的
+  表 / 视图 / 触发器，最后把 user_version 升到 SCHEMA_VERSION。
+- 迁移函数只做「结构变更 + 老数据搬运」，必须幂等：内部用 PRAGMA table_info /
+  sqlite_master 判断是否真的需要改动，从而既处理真正的老库，也容忍
+  「表已最新但 user_version 漏写」的异常库，且不会重复破坏数据。
+
+新增结构时按两条规则改代码：
+1) 新增表 / 新增视图 / 新增触发器：只改 schema.sql（并重新生成 schema.py），
+   再把 SCHEMA_VERSION 加 1 即可，无需写迁移函数——重放 schema.sql 会幂等创建。
+2) 对「已有表」增 / 删 / 改列：除改 schema.sql 外，还要新增一个迁移函数挂到
+   新的版本号上：新增列用 ALTER TABLE ... ADD COLUMN；删除列用 ALTER TABLE ...
+   DROP COLUMN；改类型或改约束用「建新表 -> INSERT SELECT 拷贝老数据 -> DROP 旧表
+   -> RENAME」重建（参见 _TEACHERS_V2_SQL 与 teachers 的 role 变更）。
 """
 
 from __future__ import annotations
 
 import sqlite3
 import uuid
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -69,8 +86,16 @@ _TEACHERS_V2_SQL = [
 ]
 
 
-def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
-    """v1 -> v2：重建 teachers 表以放宽 role 域，保留原有数据与主键。"""
+def _needs_teacher_migration(conn: sqlite3.Connection) -> bool:
+    """teachers 表已存在但 role 域不含 'developer'（旧结构）时需重建。"""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'teachers'"
+    ).fetchone()
+    return row is not None and "developer" not in row[0]
+
+
+def _rebuild_teachers_for_developer_role(conn: sqlite3.Connection) -> None:
+    """重建 teachers 表以放宽 role 域，保留原有数据与主键。"""
     conn.execute("PRAGMA foreign_keys = OFF")
     try:
         with conn:
@@ -78,14 +103,6 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
                 conn.execute(stmt)
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
-
-
-def _needs_teacher_migration(conn: sqlite3.Connection) -> bool:
-    """teachers 表已存在但 role 域不含 'developer'（旧结构）时需重建。"""
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'teachers'"
-    ).fetchone()
-    return row is not None and "developer" not in row[0]
 
 
 # 历史版本中出现过的视图（含已废弃的 7 个与当前 3 个），精简列前统一清理。
@@ -130,6 +147,32 @@ def _migrate_drop_unused_columns(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """v1 -> v2 的两处结构变更：teachers 增加 'developer' 角色、精简未入库列。
+
+    两者均为幂等操作，不会破坏老数据。
+    """
+    if _needs_teacher_migration(conn):
+        _rebuild_teachers_for_developer_role(conn)
+    _migrate_drop_unused_columns(conn)
+
+
+# 结构迁移清单：每个条目 (目标版本, 迁移函数) 表示把数据库从「目标版本 - 1」
+# 升级到「目标版本」。_ensure_schema 按版本号升序执行尚未应用的条目。
+# 仅「已有表」的增/删/改列需要在此登记；新增表/视图/触发器只改 schema.sql 即可。
+MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
+    (2, _migrate_v1_to_v2),
+]
+
+
+def _is_fresh_db(conn: sqlite3.Connection) -> bool:
+    """数据库尚无任何业务表（sqlite 内置表除外）时为全新库。"""
+    count = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchone()[0]
+    return count == 0
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     """按版本号初始化/升级表结构；检测到不可兼容的旧库时给出明确指引。"""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -145,10 +188,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
 
     conn.execute("PRAGMA journal_mode = WAL")
-    if _needs_teacher_migration(conn):
-        _migrate_v1_to_v2(conn)
-    _migrate_drop_unused_columns(conn)
-    conn.executescript(SCHEMA_SQL)
+
+    if _is_fresh_db(conn):
+        # 全新库：直接按最新结构建表，无需跑迁移。
+        conn.executescript(SCHEMA_SQL)
+    else:
+        # 已有数据：逐条执行尚未应用的增量迁移，再重放 schema.sql 补齐
+        # 新增表/视图/触发器（DDL 幂等，不会重建已存在的表）。
+        for target, migrate in MIGRATIONS:
+            if version < target:
+                migrate(conn)
+                conn.execute(f"PRAGMA user_version = {target}")
+                version = target
+        conn.executescript(SCHEMA_SQL)
+
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
