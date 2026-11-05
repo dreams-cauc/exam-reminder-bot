@@ -46,7 +46,7 @@ def list_invigilator_rows(conn: sqlite3.Connection) -> list[dict]:
         " r.id AS _room_id, s.id AS _slot_id, i.teacher_id AS _teacher_id,"
         " c.name AS 课程名, r.name AS 考场名, s.exam_date AS 考试日期,"
         " s.start_time AS 开始时间, s.end_time AS _end_time,"
-        " i.seat_label AS 监考座位, i.teacher_name AS 教师姓名,"
+        " i.seat_label AS 监考角色, i.teacher_name AS 教师姓名,"
         " COALESCE(t.mobile, '') AS 手机号, COALESCE(t.dingtalk_id, '') AS 钉钉号,"
         " COALESCE(t.role, '') AS 角色"
         " FROM exam_invigilators i"

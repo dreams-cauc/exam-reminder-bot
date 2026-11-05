@@ -8,7 +8,6 @@ import sys
 from PyQt5.QtCore import QFile, QIODevice, Qt
 from PyQt5.QtWidgets import QApplication
 
-# 导入即注册 qrc 编译进来的 Qt 资源（样式文件被打包进资源，便于后续打包分发）
 from ..style import resources_rc  # noqa: F401
 from ..utils import log
 from ..utils.settings import settings

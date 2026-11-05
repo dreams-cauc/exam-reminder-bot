@@ -88,7 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_exams_room ON exams (room_id);
 CREATE INDEX IF NOT EXISTS idx_exams_slot ON exams (slot_id);
 
 -- -----------------------------------------------------------------------------
--- 6. 监考安排：一场考试的监考座位与教师
+-- 6. 监考安排：一场考试的监考角色与教师
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS exam_invigilators (
     id           TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 36),
@@ -205,7 +205,7 @@ SELECT
     r.name         AS 考场名,
     s.exam_date    AS 考试日期,
     s.start_time   AS 开始时间,
-    i.seat_label   AS 监考座位,
+    i.seat_label   AS 监考角色,
     i.teacher_name AS 教师姓名,
     t.mobile       AS 手机号,
     t.dingtalk_id  AS 钉钉号,

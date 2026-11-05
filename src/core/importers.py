@@ -127,7 +127,7 @@ def load_user_json(path: Path | None = None) -> int:
 
 
 def _collect_seat_columns(headers: list[str]) -> list[tuple[str, int]]:
-    """从表头识别监考座位列，返回 [(座位标签, 列下标), ...]。
+    """从表头识别监考角色列，返回 [(座位标签, 列下标), ...]。
 
     主监考在前，副监考1、副监考2、副监考3……按序号升序；未出现则不返回。
     """
@@ -151,7 +151,7 @@ def _collect_seat_columns(headers: list[str]) -> list[tuple[str, int]]:
 
 
 def _locate_header(df: pd.DataFrame) -> tuple[int, dict[str, int], list[tuple[str, int]]]:
-    """找到表头行，返回 (表头行号, 固定字段列映射, 监考座位列)。
+    """找到表头行，返回 (表头行号, 固定字段列映射, 监考角色列)。
 
     有些导出表首行是标题行，所以扫前 10 行找同时含「课程」和「考试时间」的行。
     用列下标而非列名映射，规避 pandas 默认把首行当表头的歧义。

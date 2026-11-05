@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         if view == VIEW_INVIGILATOR:
             headers = [
                 "课程名", "考场名", "考试日期", "开始时间",
-                "监考座位", "教师姓名", "手机号", "钉钉号", "角色",
+                "监考角色", "教师姓名", "手机号", "钉钉号", "角色",
             ]
             return headers, {0, 1, 2, 3, 4, 5, 6, 7, 8}, "list_invigilator_rows"
         headers = ["提醒ID", "提醒类型", "计划触发时间", "消息内容", "异常消息", "教师姓名", "手机号"]
@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
                     conn, row["_slot_id"],
                     exam_date=row["考试日期"], start_time=value, end_time=row["_end_time"],
                 )
-            elif header == "监考座位":
+            elif header == "监考角色":
                 db.update_invigilator(conn, row["_invigilator_id"], seat_label=value)
             elif header == "教师姓名":
                 db.update_invigilator(conn, row["_invigilator_id"], teacher_name=value)
