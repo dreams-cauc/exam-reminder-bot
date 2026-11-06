@@ -24,6 +24,7 @@ output/
 
 *.md
 !README.md
+!/docs/*
 
 *.txt
 !requirements.txt
