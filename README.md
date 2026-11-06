@@ -70,7 +70,7 @@ user.json（教师名册）          教务监考表 .xlsx
 
 ## 3. 数据模型
 
-系统数据库共 10 张表，详见 [docs/database.md](docs/database.md) 与 [docs/data-dictionary.md](docs/data-dictionary.md)文件。
+系统数据库共 10 张表，详见 [docs/database.md](./docs/database.md) 与 [docs/data-dictionary.md](./docs/data-dictionary.md)文件。
 
 | 表                                     | 说明                                                        | 关键约束                                    |
 | -------------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
