@@ -290,6 +290,7 @@ python -m src.cli.cmd server --skip-queue         # 启动时不重建队列
 ## 12. 致谢
 
 - 本项目在设计与开发过程中使用了 [Claude Code](https://claude.com/claude-code)（Anthropic 出品的 AI 编程助手）。Claude Code 在需求梳理、数据库规范化重构、PyQt 桌面组件函数绑定，以及文档的撰写中提供了重要帮助。特此向 Anthropic 团队与 Claude Code 致以诚挚的感谢。
+- [Claude Code](https://claude.com/claude-code) 接入了[DeepSeek](https://platform.deepseek.com) 模型，是 Claude Code 思考的大脑，为该项目的落地提供了巨大的贡献，特此向 DeepSeek 团队致以诚挚的感谢。
 - 个人开发的开源项目，经验不足，系统难免存在不足之处。如果您在体验中发现问题，或者有优化的想法，非常期待您通过 Issue 或 PR 参与共建。感谢您的支持与理解。
 
 ## 附件
